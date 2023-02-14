@@ -1,0 +1,14 @@
+---
+title: "READ ME"
+author: "Femke Keij S2647168"
+date: "2023-02-14"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## READ ME
+
+Repository for Leiden University MSc thesis by Femke Keij on the performance of different machine learning algorithms for calibration Agent-Based Models in Ecology.
