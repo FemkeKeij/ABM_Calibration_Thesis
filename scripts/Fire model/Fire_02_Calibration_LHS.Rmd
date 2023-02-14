@@ -1,0 +1,345 @@
+---
+title: "Reading in NetLogo output files"
+author: "Femke Keij S2647168"
+date: '2022-07-14'
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Preliminaries
+Clear working directory & set random seed:
+```{r}
+rm(list = ls(all = TRUE))
+
+set.seed(42)
+```
+
+Packages used:
+```{r}
+# for importing / working with tidy data
+library(tidyverse)
+
+# for Latin hypercube sampling
+library(lhs)
+
+# for ggplot
+library(directlabels)
+```
+
+Read in the data:
+```{r}
+# complete output data
+fire_output <- read_csv('data/raw/fire_output.csv')
+
+# training data
+fire_train <- read_csv(
+  'data/processed/fire_train.csv')
+fire_train$directions <- as.factor(fire_train$directions)
+
+# test data
+fire_test <- read_csv(
+  'data/processed/fire_test.csv')
+fire_test$directions <- as.factor(fire_test$directions)
+```
+
+# Setting up the samples
+Random samples:
+5, 10, 20, 30, 40, 50, 60, 70, and 80 $%$ of the total parameter space.
+```{r}
+N <- nrow(fire_output)
+# range of (training) sample sizes to work with
+n <- c(0.05 * N, 0.1 * N, 0.2 * N, 0.3 * N, 0.4 * N, 0.5 * N,
+       0.6 * N, 0.7 * N, nrow(fire_train))
+```
+
+Set up the Latin hypercube sample(s).
+```{r}
+# Function for Latin hypercube sampling using the ranges of each of the variables
+LatinHypercubeSampling <- function(n, k = 2){
+  # n: number of samples to draw
+  # k: number of variables over which to sample
+  
+  # LHS with n samples over k variables
+  A <- randomLHS(n = n, k = k)
+  
+  # transform samples to represent the parameter space
+  # create empty matrix to hold parameter space samples
+  B <- matrix(nrow = nrow(A), ncol = ncol(A))
+  # round uniform distribution between 1 and 99 for
+  # tree density
+  B[,1] <- round(qunif(A[,1], min = 1, max = 99), digits = 0)
+  # binomial distribution for '4 vs. 8 directions'
+  B[,2] <- qbinom(p = A[,2], size = 1, prob = 0.5)
+  B[, 2] <- B[, 2] * 4 + 4
+  
+  return(B)
+}
+
+# create an empty list to hold each of the LHSs
+samples <- list()
+# loop through the sample sizes and obtain LHS for each
+for(i in 1:length(n)){
+  samples[[i]] <- LatinHypercubeSampling(n = n[i], k = 4)
+}
+```
+
+Now I take a random instance of the the training data for each of the LHS samples obtained above.
+```{r}
+for(i in 1:9){
+  for(j in 1:n[i]){
+    density <- samples[[i]][j, 1]
+    direction <- samples[[i]][j, 2]
+    ind_true <- which(fire_train$density == density & 
+                   fire_train$directions == direction)
+    ind_use <- sample(ind_true, size = 1)
+    burn_perc <- fire_train$burn_percentage[ind_use]
+    ticks <- fire_train$ticks[ind_use]
+    samples[[i]][j, 3] <- burn_perc
+    samples[[i]][j, 4] <- ticks
+  }
+}
+```
+
+# Functions
+```{r}
+LatinHypercubeSampleFitting <- function(ticks = FALSE){
+  # create tibble to store results
+  length_tib <- sum(nrow(fire_test) * length(n))
+  lhs_results <- tibble(direction_true = numeric(length_tib),
+                        direction_pred = numeric(length_tib),
+                        density_true = numeric(length_tib),
+                        density_pred = numeric(length_tib),
+                        burn_true = numeric(length_tib),
+                        burn_pred = numeric(length_tib),
+                        n = numeric(length_tib),
+                        ticks_included = numeric(length_tib))
+  
+  # set count variable for filling out the tibble
+  count <- 1
+  
+  # for each of the different sample sizes, estimate
+  # each case of the test data
+  
+  for(j in 1:9){
+    for(k in 1:nrow(fire_test)){
+      if(ticks == FALSE){
+        # take an instance of the test data
+        burn_match <- fire_test$burn_percentage[k]
+        # see which instance of the LHS has the smallest
+        # distance to the test data
+        diffs <- abs(samples[[j]][,3] - burn_match)
+        ind <- which(diffs == min(diffs))
+        lhs_results$ticks_included[count] <- 'no'
+      } else{
+        # take a burn percentage and number of ticks
+        burn_match <- fire_test$burn_percentage[k]
+        ticks_match <- fire_test$ticks[k]
+        # see which instance of the LHS has the smallest
+        # distance to that burn percentage and number of ticks
+        diffs_burn <- abs(samples[[j]][,3] - burn_match)
+        diffs_ticks <- abs(samples[[j]][,4] - ticks_match)
+        # multiply and divide the number of ticks
+        # to weight them similarly to the burn percentages
+        diffs <- diffs_burn + (diffs_ticks / 800 * 100)
+        ind <- which(diffs == min(diffs))
+        lhs_results$ticks_included[count] <- 'yes'
+      }
+      
+      # in case there are multiple instances that match
+      # equally well, select 1 randomly
+      if(length(ind) != 1){
+        ind <- sample(ind, size = 1)
+      }
+      # retrieve the density and direction that generated
+      # the minimum difference & store all info in the tibble
+      lhs_results$direction_true[count] <-
+        as.numeric(fire_test$directions[k])
+      lhs_results$direction_pred[count] <- samples[[j]][ind, 2]
+      lhs_results$density_true[count] <- fire_test$density[k]
+      lhs_results$density_pred[count] <- samples[[j]][ind, 1]
+      lhs_results$burn_true[count] <-
+        fire_test$burn_percentage[k]
+      lhs_results$burn_pred[count] <- samples[[j]][ind, 3]
+      lhs_results$n[count] <- n[j]
+      count <- count + 1
+    }
+  }
+
+# correct format of direction_true variable
+lhs_results %>%
+  mutate(direction_true = replace(direction_true, direction_true == 1, 4),
+         direction_true = replace(direction_true, direction_true == 2, 8)) -> lhs_results
+  
+# return results
+return(lhs_results)
+}
+```
+
+The following function summarises the following:
+- % of cases in which both direction and density are estimated correctly
+- % of cases in which density is estimated correctly
+- % of cases in which direction is estimated correctly
+- % of cases in which the density is estimated to be within the same 10% interval as the true density
+- RMSE of the estimated density
+- NRMSE of the estimated density
+- point prediction performance of the estimated density
+```{r}
+LatinHypercubeErrors <- function(lhs_results,
+                                 ticks = FALSE){
+  lhs_results %>%
+  mutate(category_true = cut(density_true, breaks = c(-Inf, 10, 20, 30, 40, 50, 60, 70, 80, 90, Inf), labels = c('0 - 10', '11 - 20', '21 - 30', '31 - 40', '41 - 50', '51 - 60', '61 - 70', '71 - 80', '81 - 90', '91 - 99')),
+         category_pred = cut(density_pred, breaks = c(-Inf, 10, 20, 30, 40, 50, 60, 70, 80, 90, Inf), labels = c('0 - 10', '11 - 20', '21 - 30', '31 - 40', '41 - 50', '51 - 60', '61 - 70', '71 - 80', '81 - 90', '91 - 99'))) -> lhs_results
+
+  # means of the density parameter in each of the training
+  # data sets
+  means <- numeric(9)
+  for(i in 1:9){
+    means[i] <- mean(samples[[i]][,1])
+  }
+
+  merge(lhs_results, as_tibble(cbind(n, means)),
+        by = c('n')) %>%
+    group_by(n) %>%
+    summarise(perc_correct = sum(direction_true ==
+                                   direction_pred &
+                                   density_true == density_pred)
+                / nrow(fire_test),
+              perc_density_correct = sum(density_true ==
+                                         density_pred) /
+                nrow(fire_test),
+              perc_direction_correct = sum(direction_true ==
+                                           direction_pred) /
+                nrow(fire_test),
+              perc_corect_cat = sum(category_true ==
+                                    category_pred) /
+                nrow(fire_test),
+              RMSE = sqrt(sum((density_pred - density_true)^2))
+                /nrow(fire_test),
+              NRMSE = (sqrt(sum((density_pred -
+                                   density_true)^2))
+                     / nrow(fire_test)) / sd(density_true),
+              point_pred_performance = 1 - 
+                sum(sqrt((density_pred - density_true)^2)) /
+                sum(sqrt((density_true - means)^2))) ->
+    lhs_errors
+  
+  lhs_errors$ticks_included <- 
+    if(ticks == TRUE){'yes'} else{'no'}
+
+  return(lhs_errors)
+}
+```
+
+# Running functions
+Without ticks
+```{r}
+lhs_results_noticks <- 
+  LatinHypercubeSampleFitting(ticks = FALSE)
+```
+
+```{r}
+lhs_errors_noticks <- LatinHypercubeErrors(lhs_results_noticks,
+                                           ticks = FALSE)
+```
+
+With ticks
+```{r}
+lhs_results_ticks <- LatinHypercubeSampleFitting(ticks = TRUE)
+``` 
+
+```{r}
+lhs_errors_ticks <- LatinHypercubeErrors(lhs_results_ticks,
+                                         ticks = TRUE)
+```
+
+Merge results
+```{r}
+lhs_results <- rbind(lhs_results_noticks, lhs_results_ticks)
+``` 
+
+```{r}
+lhs_errors <- rbind(lhs_errors_noticks, lhs_errors_ticks)
+```
+
+# Plots
+Predicted vs. true (largest sample size only):
+```{r}
+lhs_results$n <- as.factor(lhs_results$n)
+lhs_results$direction_true <-
+  as.factor(lhs_results$direction_true)
+
+lhs_results %>%
+  filter(n == 1584) %>%
+  ggplot(mapping = aes(x = density_pred, y = density_true,
+                       colour = direction_true)) +
+  facet_grid(. ~ ticks_included) +
+  geom_point() +
+  theme_minimal() +
+  labs(x = 'predicted density',
+       y = 'true density')
+```
+
+% of predictions that are correct
+```{r}
+lhs_errors$n <- as.factor(lhs_errors$n)
+
+lhs_errors %>%
+  filter(n == c(99, 792, 1584)) %>%
+  ggplot(mapping = aes(x = n, y = perc_correct,
+                       fill = ticks_included)) +
+  geom_bar(stat = 'identity',
+           position = position_dodge()) +
+  theme_minimal() -> p1
+
+lhs_errors %>%
+  filter(n == c(99, 792, 1584)) %>%
+  ggplot(mapping = aes(x = n, y = perc_density_correct,
+                       fill = ticks_included)) +
+  geom_bar(stat = 'identity',
+           position = position_dodge()) +
+  theme_minimal() -> p2
+
+lhs_errors %>%
+  filter(n == c(99, 792, 1584)) %>%
+  ggplot(mapping = aes(x = n, y = perc_direction_correct,
+                       fill = ticks_included)) +
+  geom_bar(stat = 'identity',
+           position = position_dodge()) +
+  theme_minimal() -> p3
+
+lhs_errors %>%
+  filter(n == c(99, 792, 1584)) %>%
+  ggplot(mapping = aes(x = n, y = perc_corect_cat,
+                       fill = ticks_included)) +
+  geom_bar(stat = 'identity',
+           position = position_dodge()) +
+  theme_minimal() -> p4
+
+p1 + p2 + p3 + p4
+```
+
+RMSE, NRMSE & point prediction performance
+```{r}
+lhs_errors %>%
+  ggplot(mapping = aes(x = n, y = RMSE,
+                       fill = ticks_included)) +
+  geom_bar(stat = 'identity',
+           position = position_dodge()) -> p1
+
+lhs_errors %>%
+  ggplot(mapping = aes(x = n, y = NRMSE,
+                       fill = ticks_included)) +
+  geom_bar(stat = 'identity',
+           position = position_dodge()) -> p2
+
+lhs_errors %>%
+  ggplot(mapping = aes(x = n, y = point_pred_performance,
+                       fill = ticks_included)) +
+  geom_bar(stat = 'identity',
+           position = position_dodge()) -> p3
+
+p1 + p2 + p3
+```
