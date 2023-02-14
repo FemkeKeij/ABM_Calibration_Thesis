@@ -35,7 +35,7 @@ Read in the data:
 ```{r}
 # complete data set
 fire_output <- read_csv(
-  'data/raw/fire_output_complete.csv')
+  'data/raw/fire_output.csv')
 fire_output %>%
   mutate(directions = replace(directions, directions == 4,
                               "4 directions"),
@@ -44,26 +44,26 @@ fire_output %>%
 
 # training data
 fire_train <- read_csv(
-  'data/processed/fire_training.csv')
+  'data/processed/fire_train.csv')
 
 # test data
 fire_test <- read_csv(
   'data/processed/fire_test.csv')
 
 # output data summary for model with 4 directions
-fire_data_summary <- read_csv(
-  'data/processed/fire_data_summary.csv')
-fire_data_summary %>%
+fire_summary <- read_csv(
+  'data/processed/fire_summary.csv')
+fire_summary %>%
   mutate(directions = replace(directions, directions == 4,
                               "4 directions"),
          directions = replace(directions, directions == 8,
-                              "8 directions")) -> fire_data_summary
+                              "8 directions")) -> fire_summary
 ```
 
 # Plots
 Parameter space plot:
 ```{r}
-fire_data_summary %>%
+fire_summary %>%
   ggplot(mapping = (aes(x = density, y = burned,
                         group = directions,
                         colour = directions))) +

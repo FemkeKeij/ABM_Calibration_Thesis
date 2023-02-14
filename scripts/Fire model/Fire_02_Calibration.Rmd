@@ -67,12 +67,12 @@ Read in the data:
 ```{r}
 # complete data set
 fire_output <- read_csv(
-  'data/raw/fire_output_complete.csv')
+  'data/raw/fire_output.csv')
 fire_output$directions <- as.factor(fire_output$directions)
 
 # training data
 fire_train <- read_csv(
-  'data/processed/fire_training.csv')
+  'data/processed/fire_train.csv')
 fire_train$directions <- as.factor(fire_train$directions)
 
 # test data
