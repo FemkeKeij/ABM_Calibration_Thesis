@@ -297,7 +297,7 @@ lhs_results %>%
   theme(panel.grid.minor.y = element_blank(),
         panel.grid.minor.x = element_blank())
 
-ggsave('figures/fire_pred_vs_true.pdf')
+ggsave('figures/fire_LHS_pred_vs_true.pdf')
 ```
 
 % of predictions that are correct
@@ -358,7 +358,7 @@ p1 + p2 + p3 + p4 +
                   title = '% correctly predicted') & 
   theme(plot.tag = element_text(size = 8))
 
-ggsave('figures/fire_perc_correct.pdf')
+ggsave('figures/fire_LHS_perc_correct.pdf')
 ```
 
 RMSE, NRMSE & point prediction performance
@@ -399,5 +399,5 @@ p1 + p2 + p3 +
   plot_annotation(tag_levels = 'A') & 
   theme(plot.tag = element_text(size = 8))
 
-ggsave('figures/fire_RMSE.pdf')
+ggsave('figures/fire_LHS_RMSE.pdf')
 ```
