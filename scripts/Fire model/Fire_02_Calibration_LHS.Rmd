@@ -27,6 +27,7 @@ library(lhs)
 
 # for ggplot
 library(directlabels)
+library(patchwork)
 ```
 
 Read in the data:
@@ -189,11 +190,7 @@ The following function summarises the following:
 ```{r}
 LatinHypercubeErrors <- function(lhs_results,
                                  ticks = FALSE){
-  lhs_results %>%
-  mutate(category_true = cut(density_true, breaks = c(-Inf, 10, 20, 30, 40, 50, 60, 70, 80, 90, Inf), labels = c('0 - 10', '11 - 20', '21 - 30', '31 - 40', '41 - 50', '51 - 60', '61 - 70', '71 - 80', '81 - 90', '91 - 99')),
-         category_pred = cut(density_pred, breaks = c(-Inf, 10, 20, 30, 40, 50, 60, 70, 80, 90, Inf), labels = c('0 - 10', '11 - 20', '21 - 30', '31 - 40', '41 - 50', '51 - 60', '61 - 70', '71 - 80', '81 - 90', '91 - 99'))) -> lhs_results
-
-  # means of the density parameter in each of the training
+    # means of the density parameter in each of the training
   # data sets
   means <- numeric(9)
   for(i in 1:9){
@@ -213,8 +210,10 @@ LatinHypercubeErrors <- function(lhs_results,
               perc_direction_correct = sum(direction_true ==
                                            direction_pred) /
                 nrow(fire_test),
-              perc_corect_cat = sum(category_true ==
-                                    category_pred) /
+              perc_correct_cat = sum(density_pred >=
+                                       density_true - 5 &
+                                       density_pred <=
+                                       density_true + 5) /
                 nrow(fire_test),
               RMSE = sqrt(sum((density_pred - density_true)^2))
                 /nrow(fire_test),
@@ -312,7 +311,7 @@ lhs_errors %>%
 
 lhs_errors %>%
   filter(n == c(99, 792, 1584)) %>%
-  ggplot(mapping = aes(x = n, y = perc_corect_cat,
+  ggplot(mapping = aes(x = n, y = perc_correct_cat,
                        fill = ticks_included)) +
   geom_bar(stat = 'identity',
            position = position_dodge()) +
