@@ -9,18 +9,105 @@ output: pdf_document
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
+# Preliminaries
+Clear working directory & set random seed:
+```{r}
+rm(list = ls(all = TRUE))
+
+set.seed(42)
+```
+
+Packages used:
 ```{r}
 # for piecewise linear regression
 library(segmented)
 
 # for splines
 library(splines)
+
+# for importing / working with tidy data
+library(tidyverse)
+
+# for ggplot
+library(directlabels)
+library(patchwork)
+```
+
+Read in the data:
+```{r}
+# complete output data
+fire_output <- read_csv('data/raw/fire_output.csv')
+
+# training data
+fire_train <- read_csv(
+  'data/processed/fire_train.csv')
+fire_train$directions <- as.factor(fire_train$directions)
+
+# test data
+fire_test <- read_csv(
+  'data/processed/fire_test.csv')
+fire_test$directions <- as.factor(fire_test$directions)
+```
+
+Functions to use:
+```{r}
+source('scripts/methods/linear-regression-functions.R')
 ```
 
 # Regression
 
 ## Linear regression
 Use the functions from the **Linear regression functions.R** file to get the errors for different training sample sizes
+
+Random samples:
+5, 10, 20, 30, 40, 50, 60, 70, and 80 $%$ of the total parameter space.
+```{r}
+N <- nrow(fire_output)
+# range of (training) sample sizes to work with
+n <- c(0.05 * N, 0.1 * N, 0.2 * N, 0.3 * N, 0.4 * N, 0.5 * N,
+       0.6 * N, 0.7 * N, nrow(fire_train))
+```
+
+```{r}
+linear_regression_fit <- list()
+linear_regression_predictions <- list()
+
+for(i in 1:length(n)){
+  linear_regression_fit[[i]] <- 
+    LinearRegFitting(n = n[i], training = fire_train,
+                     formula =
+                       'burn_percentage ~ density + directions')
+  linear_regression_predictions[[i]] <- 
+    LinearRegPredicting(linear_regression_results[[i]],
+                        test = fire_test,
+                        terms = c('density', 'directions'))
+}
+```
+
+Plot the fit with the smallest and largest sample size:
+```{r}
+fire_train %>%
+  ggplot(mapping = aes(x = density, y = burn_percentage,
+                       colour = directions)) +
+  geom_point() +
+  geom_line(data = fortify(linear_regression_fit[[1]]),
+            aes(x = density, y = .fitted)) -> p1
+
+fire_train %>%
+  ggplot(mapping = aes(x = density, y = burn_percentage,
+                       colour = directions)) +
+  geom_point() +
+  geom_line(data = fortify(linear_regression_fit[[9]]),
+            aes(x = density, y = .fitted)) -> p2
+
+p1 + p2
+```
+
+Calculate some error rates:
+```{r}
+
+``` 
+
 ```{r}
 linear_reg_RMSE <- rep(NA, length(n))
 linear_reg_performance <- list()

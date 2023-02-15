@@ -17,6 +17,18 @@ LinearRegFitting <- function(n, training, formula){
   return(fit)
 }
 
+# Function to predict the test data
+LinearRegPredicting <- function(fit, test, terms){
+  # fit: the fitted linear model
+  # test: test data to be used
+  # terms: parameters to predict
+  prediction <- predict.lm(fit, newdata = test,
+                           type = 'terms',
+                           terms = terms,
+                           interval = 'confidence')
+  return(prediction)
+}
+
 # Function to calculate the error rate of the linear regression
 LinearRegError <- function(fit, test, y){
   # fit: the fitted linear model
