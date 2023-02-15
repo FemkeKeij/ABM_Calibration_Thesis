@@ -91,11 +91,16 @@ Now I take a random instance of the the training data for each of the LHS sample
 ```{r}
 for(i in 1:9){
   for(j in 1:n[i]){
+    # take a density and direction from the sample
     density <- samples[[i]][j, 1]
     direction <- samples[[i]][j, 2]
+    # find an instance in the training data with those
+    # values
     ind_true <- which(fire_train$density == density & 
                    fire_train$directions == direction)
+    # sample 1 instance in case there are multiple that match
     ind_use <- sample(ind_true, size = 1)
+    # retrieve burn_percentage and ticks
     burn_perc <- fire_train$burn_percentage[ind_use]
     ticks <- fire_train$ticks[ind_use]
     samples[[i]][j, 3] <- burn_perc
@@ -183,15 +188,16 @@ The following function summarises the following:
 - % of cases in which both direction and density are estimated correctly
 - % of cases in which density is estimated correctly
 - % of cases in which direction is estimated correctly
-- % of cases in which the density is estimated to be within the same 10% interval as the true density
+- % of cases in which the density is estimated to be within 10% of the true density
 - RMSE of the estimated density
 - NRMSE of the estimated density
 - point prediction performance of the estimated density
 ```{r}
 LatinHypercubeErrors <- function(lhs_results,
                                  ticks = FALSE){
-    # means of the density parameter in each of the training
-  # data sets
+  
+  # means of the density parameter in each of the training
+  # data sets (required for point prediction performance)
   means <- numeric(9)
   for(i in 1:9){
     means[i] <- mean(samples[[i]][,1])
@@ -264,7 +270,7 @@ lhs_errors <- rbind(lhs_errors_noticks, lhs_errors_ticks)
 ```
 
 # Plots
-Predicted vs. true (largest sample size only):
+Predicted vs. true density (largest sample size only):
 ```{r}
 lhs_results$n <- as.factor(lhs_results$n)
 lhs_results$direction_true <-
