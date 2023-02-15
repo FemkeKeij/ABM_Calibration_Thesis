@@ -136,7 +136,7 @@ LatinHypercubeSampleFitting <- function(ticks = FALSE){
         burn_match <- fire_test$burn_percentage[k]
         # see which instance of the LHS has the smallest
         # distance to the test data
-        diffs <- abs(samples[[j]][,3] - burn_match)
+        diffs <- sqrt((samples[[j]][,3] - burn_match)^2)
         ind <- which(diffs == min(diffs))
         lhs_results$ticks_included[count] <- 'no'
       } else{
@@ -145,11 +145,13 @@ LatinHypercubeSampleFitting <- function(ticks = FALSE){
         ticks_match <- fire_test$ticks[k]
         # see which instance of the LHS has the smallest
         # distance to that burn percentage and number of ticks
-        diffs_burn <- abs(samples[[j]][,3] - burn_match)
-        diffs_ticks <- abs(samples[[j]][,4] - ticks_match)
-        # multiply and divide the number of ticks
+        # weigh by inverse of variance
+        diffs_burn <- (1 / var(samples[[j]][,3]))*
+          (samples[[j]][,3] - burn_match)^2
+        diffs_ticks <- (1 / var(samples[[j]][,4]))*
+          (samples[[j]][,4] - ticks_match)^2
         # to weight them similarly to the burn percentages
-        diffs <- diffs_burn + (diffs_ticks / 800 * 100)
+        diffs <- sqrt(diffs_burn + diffs_ticks)
         ind <- which(diffs == min(diffs))
         lhs_results$ticks_included[count] <- 'yes'
       }
