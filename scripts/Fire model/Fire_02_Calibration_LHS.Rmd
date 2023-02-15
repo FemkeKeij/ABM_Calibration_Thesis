@@ -269,16 +269,27 @@ Predicted vs. true (largest sample size only):
 lhs_results$n <- as.factor(lhs_results$n)
 lhs_results$direction_true <-
   as.factor(lhs_results$direction_true)
+lhs_results$direction_pred <-
+  as.factor(lhs_results$direction_pred)
+
+supp_labs <- c('without ticks', 'with ticks')
+names(supp_labs) <- c('no', 'yes')
 
 lhs_results %>%
   filter(n == 1584) %>%
   ggplot(mapping = aes(x = density_pred, y = density_true,
-                       colour = direction_true)) +
-  facet_grid(. ~ ticks_included) +
+                       colour = direction_true,
+                       shape = direction_pred)) +
+  facet_grid(. ~ ticks_included,
+             labeller = labeller(ticks_included = supp_labs)) +
   geom_point() +
   theme_minimal() +
   labs(x = 'predicted density',
-       y = 'true density')
+       y = 'true density',
+       colour = 'True number of directions',
+       shape = 'Predicted number of directions') +
+  theme(panel.grid.minor.y = element_blank(),
+        panel.grid.minor.x = element_blank())
 ```
 
 % of predictions that are correct
@@ -291,7 +302,11 @@ lhs_errors %>%
                        fill = ticks_included)) +
   geom_bar(stat = 'identity',
            position = position_dodge()) +
-  theme_minimal() -> p1
+  labs(y = 'density & direction',
+       fill = 'Ticks included') +
+  theme_minimal() +
+  theme(panel.grid.major.x = element_blank(),
+        panel.grid.minor.x = element_blank()) -> p1
 
 lhs_errors %>%
   filter(n == c(99, 792, 1584)) %>%
@@ -299,7 +314,11 @@ lhs_errors %>%
                        fill = ticks_included)) +
   geom_bar(stat = 'identity',
            position = position_dodge()) +
-  theme_minimal() -> p2
+  labs(y = 'density',
+       fill = 'Ticks included') +
+  theme_minimal() +
+  theme(panel.grid.major.x = element_blank(),
+        panel.grid.minor.x = element_blank()) -> p2
 
 lhs_errors %>%
   filter(n == c(99, 792, 1584)) %>%
@@ -307,7 +326,11 @@ lhs_errors %>%
                        fill = ticks_included)) +
   geom_bar(stat = 'identity',
            position = position_dodge()) +
-  theme_minimal() -> p3
+  labs(y = 'direction',
+       fill = 'Ticks included') +
+  theme_minimal() +
+  theme(panel.grid.major.x = element_blank(),
+        panel.grid.minor.x = element_blank()) -> p3
 
 lhs_errors %>%
   filter(n == c(99, 792, 1584)) %>%
@@ -315,9 +338,17 @@ lhs_errors %>%
                        fill = ticks_included)) +
   geom_bar(stat = 'identity',
            position = position_dodge()) +
-  theme_minimal() -> p4
+  labs(y = 'density within \n 10% of true density',
+       fill = 'Ticks included') +
+  theme_minimal() +
+  theme(panel.grid.major.x = element_blank(),
+        panel.grid.minor.x = element_blank()) -> p4
 
-p1 + p2 + p3 + p4
+p1 + p2 + p3 + p4 +
+  plot_layout(guides = 'collect') +
+  plot_annotation(tag_levels = 'A',
+                  title = '% correctly predicted') & 
+  theme(plot.tag = element_text(size = 8))
 ```
 
 RMSE, NRMSE & point prediction performance
@@ -326,19 +357,35 @@ lhs_errors %>%
   ggplot(mapping = aes(x = n, y = RMSE,
                        fill = ticks_included)) +
   geom_bar(stat = 'identity',
-           position = position_dodge()) -> p1
+           position = position_dodge()) +
+  labs(fill = 'Ticks included') +
+  theme_minimal() +
+  theme(panel.grid.major.x = element_blank(),
+        panel.grid.minor.x = element_blank()) -> p1
 
 lhs_errors %>%
   ggplot(mapping = aes(x = n, y = NRMSE,
                        fill = ticks_included)) +
   geom_bar(stat = 'identity',
-           position = position_dodge()) -> p2
+           position = position_dodge()) +
+  labs(fill = 'Ticks included') +
+  theme_minimal() +
+  theme(panel.grid.major.x = element_blank(),
+        panel.grid.minor.x = element_blank()) -> p2
 
 lhs_errors %>%
   ggplot(mapping = aes(x = n, y = point_pred_performance,
                        fill = ticks_included)) +
   geom_bar(stat = 'identity',
-           position = position_dodge()) -> p3
+           position = position_dodge()) +
+  labs(fill = 'Ticks included',
+       y = 'point prediction performance') +
+  theme_minimal() +
+  theme(panel.grid.major.x = element_blank(),
+        panel.grid.minor.x = element_blank()) -> p3
 
-p1 + p2 + p3
+p1 + p2 + p3 +
+  plot_layout(guides = 'collect') +
+  plot_annotation(tag_levels = 'A') & 
+  theme(plot.tag = element_text(size = 8))
 ```
