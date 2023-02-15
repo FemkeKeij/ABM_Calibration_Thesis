@@ -96,6 +96,8 @@ fire_output %>%
 Plot both:
 ```{r}
 p1 + p2
+
+ggsave('figures/fire_parameterspace.pdf')
 ```
 
 # Summary statistics
