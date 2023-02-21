@@ -51,7 +51,7 @@ fire_test$directions <- as.factor(fire_test$directions)
 
 Functions to use:
 ```{r}
-source('scripts/methods/linear-regression-functions.R')
+#source('scripts/methods/linear-regression-functions.R')
 ```
 
 # Regression
@@ -69,21 +69,288 @@ n <- c(0.05 * N, 0.1 * N, 0.2 * N, 0.3 * N, 0.4 * N, 0.5 * N,
 ```
 
 ```{r}
-linear_regression_fit <- list()
-linear_regression_predictions <- list()
+LinearRegressionFitting <- function(ticks = FALSE){
+  length_tib <- sum(nrow(fire_test) * length(n))
+  regression_results <- tibble(direction_true = numeric(length_tib),
+                              direction_pred = numeric(length_tib),
+                              density_true = numeric(length_tib),
+                              density_pred = numeric(length_tib),
+                              burn_true = numeric(length_tib),
+                              burn_pred = numeric(length_tib),
+                              n = numeric(length_tib),
+                              ticks_included = numeric(length_tib))
+  density_means <- numeric(length(n))
 
-for(i in 1:length(n)){
-  linear_regression_fit[[i]] <- 
-    LinearRegFitting(n = n[i], training = fire_train,
-                     formula =
-                       'burn_percentage ~ density + directions')
-  linear_regression_predictions[[i]] <- 
-    LinearRegPredicting(linear_regression_results[[i]],
-                        test = fire_test,
-                        terms = c('density', 'directions'))
+  count <- 1
+
+  for(i in 1:length(n)){
+    ind_sample <- sample(1:nrow(fire_train), size = n[i])
+    fire_train_sub <- fire_train[ind_sample, ]
+    density_means[i] <- mean(fire_train_sub$density)
+    
+    if(ticks == TRUE){
+      fit_lm_density <- lm(data = fire_train_sub,
+                               formula = 'density ~ burn_percentage + directions + ticks')
+      fit_glm_directions <- glm(data = fire_train_sub,
+                                    formula = 'directions ~ burn_percentage + density + ticks',
+                                    family = binomial(link = 'logit'))
+      
+    } else{
+      fit_lm_density <- lm(data = fire_train_sub,
+                               formula = 'density ~ burn_percentage + directions')
+      
+      fit_glm_directions <- glm(data = fire_train_sub,
+                                      formula = 'directions ~ burn_percentage + density',
+                                      family = binomial(link = 'logit'))
+    }
+    
+    predict_lm_density <- predict.lm(fit_lm_density,
+                                             newdata = fire_test)
+    
+    predict_glm_directions <- predict.glm(fit_glm_directions,
+                                                  newdata = fire_test,
+                                                  type = 'response')
+    for(k in 1:nrow(fire_test)){
+      if(predict_glm_directions[k] < 0.5){
+        predict_glm_directions[k] <- 4
+      } else{
+        predict_glm_directions[k] <- 8
+      }
+    }
+    
+    for(j in 1:nrow(fire_test)){
+      ind <- which(fire_train$density == round(predict_lm_density[j]) &
+                     fire_train$directions ==
+                     predict_glm_directions[j])
+      if(length(ind) > 1){
+        ind <- sample(ind, size = 1)
+      }
+      burn_pred <- fire_train$burn_percentage[ind]
+      regression_results$direction_true[count] <- fire_test$directions[j]
+      regression_results$direction_pred[count] <-
+        predict_glm_directions[j]
+      regression_results$density_true[count] <- fire_test$density[j]
+      regression_results$density_pred[count] <- predict_lm_density[j]
+      regression_results$burn_true[count] <- fire_test$burn_percentage[j]
+      regression_results$burn_pred[count] <- burn_pred
+      regression_results$n[count] <- n[i]
+      regression_results$ticks_included[count] <- if(ticks){'yes'}else{'no'}
+      
+      count <- count + 1
+    }
+  }
+  
+  # correct format of direction_true variable
+  regression_results %>%
+    mutate(direction_true = replace(direction_true, direction_true == 1, 4),
+         direction_true = replace(direction_true, direction_true == 2, 8)) ->
+    regression_results
+  
+  return(list(regression_results, density_means))
 }
 ```
 
+
+```{r}
+regression_results_ticks <- LinearRegressionFitting(ticks = TRUE)
+density_means_ticks <- regression_results_ticks[[2]]
+regression_results_ticks <- regression_results_ticks[[1]]
+regression_results_noticks <- LinearRegressionFitting(ticks = FALSE)
+density_means_noticks <- regression_results_noticks[[2]]
+regression_results_noticks <- regression_results_noticks[[1]]
+```
+
+```{r}
+RegressionErrors <- function(regression_results, ticks = FALSE,
+                             density_means){
+  
+  merge(regression_results, as_tibble(cbind(n, density_means)),
+        by = c('n')) %>%
+    group_by(n) %>%
+    summarise(perc_correct = sum(direction_true ==
+                                   direction_pred &
+                                   density_true == round(density_pred))
+                / nrow(fire_test),
+              perc_density_correct = sum(density_true ==
+                                         round(density_pred)) /
+                nrow(fire_test),
+              perc_direction_correct = sum(direction_true ==
+                                           direction_pred) /
+                nrow(fire_test),
+              perc_correct_cat = sum(density_pred >=
+                                       density_true - 5 &
+                                       density_pred <=
+                                       density_true + 5) /
+                nrow(fire_test),
+              RMSE = sqrt(sum((density_pred - density_true)^2))
+                /nrow(fire_test),
+              NRMSE = (sqrt(sum((density_pred -
+                                   density_true)^2))
+                     / nrow(fire_test)) / sd(density_true),
+              point_pred_performance = 1 - 
+                sum(sqrt((density_pred - density_true)^2)) /
+                sum(sqrt((density_true - density_means)^2))) ->
+    regression_errors
+  
+  regression_errors$ticks_included <- 
+    if(ticks == TRUE){'yes'} else{'no'}
+
+  return(regression_errors)
+}
+```
+
+```{r}
+regression_errors_ticks <- RegressionErrors(regression_results_ticks,
+                                            ticks = TRUE,
+                                            density_means_ticks)
+regression_errors_noticks <- RegressionErrors(regression_results_noticks,
+                                            ticks = FALSE,
+                                            density_means_noticks)
+```
+
+Merge results
+```{r}
+regression_results <- rbind(regression_results_noticks, regression_results_ticks)
+``` 
+
+```{r}
+regression_errors <- rbind(regression_errors_noticks, regression_errors_ticks)
+```
+
+# Plots
+Predicted vs. true density (largest sample size only):
+```{r}
+regression_results$n <- as.factor(regression_results$n)
+regression_results$direction_true <-
+  as.factor(regression_results$direction_true)
+regression_results$direction_pred <-
+  as.factor(regression_results$direction_pred)
+
+supp_labs <- c('without ticks', 'with ticks')
+names(supp_labs) <- c('no', 'yes')
+
+regression_results %>%
+  filter(n == 1584) %>%
+  ggplot(mapping = aes(x = density_pred, y = density_true,
+                       colour = direction_true,
+                       shape = direction_pred)) +
+  facet_grid(. ~ ticks_included,
+             labeller = labeller(ticks_included = supp_labs)) +
+  geom_point() +
+  theme_minimal() +
+  labs(x = 'predicted density',
+       y = 'true density',
+       colour = 'True number of directions',
+       shape = 'Predicted number of directions') +
+  theme(panel.grid.minor.y = element_blank(),
+        panel.grid.minor.x = element_blank())
+
+ggsave('figures/fire_regression_pred_vs_true.pdf')
+```
+
+% of predictions that are correct
+```{r}
+regression_errors$n <- as.factor(regression_errors$n)
+
+regression_errors %>%
+  filter(n == c(99, 792, 1584)) %>%
+  ggplot(mapping = aes(x = n, y = perc_correct,
+                       fill = ticks_included)) +
+  geom_bar(stat = 'identity',
+           position = position_dodge()) +
+  labs(y = 'density & direction',
+       fill = 'Ticks included') +
+  theme_minimal() +
+  theme(panel.grid.major.x = element_blank(),
+        panel.grid.minor.x = element_blank()) -> p1
+
+regression_errors %>%
+  filter(n == c(99, 792, 1584)) %>%
+  ggplot(mapping = aes(x = n, y = perc_density_correct,
+                       fill = ticks_included)) +
+  geom_bar(stat = 'identity',
+           position = position_dodge()) +
+  labs(y = 'density',
+       fill = 'Ticks included') +
+  theme_minimal() +
+  theme(panel.grid.major.x = element_blank(),
+        panel.grid.minor.x = element_blank()) -> p2
+
+regression_errors %>%
+  filter(n == c(99, 792, 1584)) %>%
+  ggplot(mapping = aes(x = n, y = perc_direction_correct,
+                       fill = ticks_included)) +
+  geom_bar(stat = 'identity',
+           position = position_dodge()) +
+  labs(y = 'direction',
+       fill = 'Ticks included') +
+  theme_minimal() +
+  theme(panel.grid.major.x = element_blank(),
+        panel.grid.minor.x = element_blank()) -> p3
+
+regression_errors %>%
+  filter(n == c(99, 792, 1584)) %>%
+  ggplot(mapping = aes(x = n, y = perc_correct_cat,
+                       fill = ticks_included)) +
+  geom_bar(stat = 'identity',
+           position = position_dodge()) +
+  labs(y = 'density within \n 10% of true density',
+       fill = 'Ticks included') +
+  theme_minimal() +
+  theme(panel.grid.major.x = element_blank(),
+        panel.grid.minor.x = element_blank()) -> p4
+
+p1 + p2 + p3 + p4 +
+  plot_layout(guides = 'collect') +
+  plot_annotation(tag_levels = 'A',
+                  title = '% correctly predicted') & 
+  theme(plot.tag = element_text(size = 8))
+
+ggsave('figures/fire_regression_perc_correct.pdf')
+```
+
+RMSE, NRMSE & point prediction performance
+```{r}
+regression_errors %>%
+  ggplot(mapping = aes(x = n, y = RMSE,
+                       fill = ticks_included)) +
+  geom_bar(stat = 'identity',
+           position = position_dodge()) +
+  labs(fill = 'Ticks included') +
+  theme_minimal() +
+  theme(panel.grid.major.x = element_blank(),
+        panel.grid.minor.x = element_blank()) -> p1
+
+regression_errors %>%
+  ggplot(mapping = aes(x = n, y = NRMSE,
+                       fill = ticks_included)) +
+  geom_bar(stat = 'identity',
+           position = position_dodge()) +
+  labs(fill = 'Ticks included') +
+  theme_minimal() +
+  theme(panel.grid.major.x = element_blank(),
+        panel.grid.minor.x = element_blank()) -> p2
+
+regression_errors %>%
+  ggplot(mapping = aes(x = n, y = point_pred_performance,
+                       fill = ticks_included)) +
+  geom_bar(stat = 'identity',
+           position = position_dodge()) +
+  labs(fill = 'Ticks included',
+       y = 'point prediction performance') +
+  theme_minimal() +
+  theme(panel.grid.major.x = element_blank(),
+        panel.grid.minor.x = element_blank()) -> p3
+
+p1 + p2 + p3 +
+  plot_layout(guides = 'collect') +
+  plot_annotation(tag_levels = 'A') & 
+  theme(plot.tag = element_text(size = 8))
+
+ggsave('figures/fire_regression_RMSE.pdf')
+```
+
+#####PREVIOUS CODE
 Plot the fit with the smallest and largest sample size:
 ```{r}
 fire_train %>%
