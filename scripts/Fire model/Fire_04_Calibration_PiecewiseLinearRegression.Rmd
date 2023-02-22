@@ -138,6 +138,9 @@ PiecewiseRegressionFitting <- function(ticks = FALSE){
       } else if (length(ind) == 0){
         add <- 1
         while(length(ind) != 1){
+          if(round(predict_lm_density[j,1]) > 50){
+            add <- add * -1
+          }
           ind <- which(fire_train$density ==
                          (round(predict_lm_density[j,1]) + add) &
                      fire_train$directions ==
