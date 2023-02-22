@@ -1,5 +1,5 @@
 ---
-title: "Fire_03_Calibration_Regression"
+title: "Fire_03_Calibration_SimpleRegression"
 author: "Femke Keij S2647168"
 date: "2023-02-14"
 output: pdf_document
@@ -31,6 +31,7 @@ library(tidyverse)
 # for ggplot
 library(directlabels)
 library(patchwork)
+library(ggbeeswarm)
 ```
 
 Read in the data:
@@ -219,12 +220,11 @@ regression_errors_noticks <- RegressionErrors(regression_results_noticks,
 
 Merge results
 ```{r}
-regression_results <- rbind(regression_results_noticks, regression_results_ticks)
-``` 
+regression_results <- rbind(regression_results_noticks,
+                            regression_results_ticks)
 
-```{r}
 regression_errors <- rbind(regression_errors_noticks, regression_errors_ticks)
-```
+``` 
 
 # Plots
 Predicted vs. true density (largest sample size only):
@@ -359,6 +359,20 @@ p1 + p2 + p3 +
 ggsave('figures/fire_regression_RMSE.pdf')
 ```
 
+Coverage
+```{r}
+regression_errors %>%
+  ggplot(mapping = aes(x = n, y = coverage,
+                       colour = ticks_included)) +
+  lims(y = c(0.94, 1.0)) +
+  geom_hline(yintercept = 0.95,
+             colour = 'light green') +
+  geom_beeswarm() +
+  labs(x = 'sample size',
+       colour = 'Ticks included',
+       y = 'coverage (95% \n prediction interval)')
+```
+
 #####PREVIOUS CODE
 Plot the fit with the smallest and largest sample size:
 ```{r}
@@ -379,10 +393,6 @@ fire_train %>%
 p1 + p2
 ```
 
-Calculate some error rates:
-```{r}
-
-``` 
 
 ```{r}
 linear_reg_RMSE <- rep(NA, length(n))
@@ -457,31 +467,6 @@ linear_reg_fit_plot
 
 # SAVE PLOT
 
-```
-
-### Prediction intervals
-Use resampling bootstrapping to obtain the prediction intervals:
-
-200 bootstrap data sets are produced and the same linear regression is run on each one. from each regression i, their prediction beta_i S(theta*) are collected and one standardized residual e is sampled (a residual divided by the square root of one minus the hat value associated with that residual). this produces a set of 200 beta_i S(theta*) + e_i. The 95% prediction interval is then defined by 2.5 and 97.5 percentile of this set.
-
-
-```{r}
-# create 200 bootstrap intervals out of the training data
-bootstrap_samples <- list()
-for(i in 1:200){
-  bootstrap_sample <- fire_train[sample(1:nrow(fire_train),
-                                        size = nrow(fire_train),
-                                        replace = TRUE), ]
-  bootstrap_lm_fit <- lm(formula = burn_percentage ~ density + direction,
-                         data = bootstrap_sample)
-  density_prediction <- predict(bootstrap_lm_fit,
-                                newdata = fire_test,
-                                type = "terms")[1]
-  res <- abs(density_prediction - fire_test[, 2])
-  hat <- density_prediction * 
-  hat <- hatvalues(bootstrap_lm_fit)
-  st_res <- res / sqrt(1 - hat)
-}
 ```
 
 ## Piecewise linear regression
