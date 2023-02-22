@@ -366,6 +366,8 @@ regression_errors %>%
   labs(x = 'sample size',
        colour = 'Ticks included',
        y = 'coverage (95% \n prediction interval)')
+
+ggsave('figures/fire_regression_coverage.pdf')
 ```
 
 Fitted regression lines (smallest and largest sample size):
@@ -408,4 +410,6 @@ p1 + p2 + p3 + p4 +
   plot_layout(guides = 'collect') +
   plot_annotation(tag_levels = 'A') & 
   theme(plot.tag = element_text(size = 8))
+
+ggsave('figures/fire_regression_fit.pdf')
 ```
