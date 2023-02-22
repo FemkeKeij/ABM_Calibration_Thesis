@@ -50,16 +50,6 @@ fire_test <- read_csv(
 fire_test$directions <- as.factor(fire_test$directions)
 ```
 
-Functions to use:
-```{r}
-#source('scripts/methods/linear-regression-functions.R')
-```
-
-# Regression
-
-## Linear regression
-Use the functions from the **Linear regression functions.R** file to get the errors for different training sample sizes
-
 Random samples:
 5, 10, 20, 30, 40, 50, 60, 70, and 80 $%$ of the total parameter space.
 ```{r}
@@ -69,6 +59,7 @@ n <- c(0.05 * N, 0.1 * N, 0.2 * N, 0.3 * N, 0.4 * N, 0.5 * N,
        0.6 * N, 0.7 * N, nrow(fire_train))
 ```
 
+# Fitting
 ```{r}
 LinearRegressionFitting <- function(ticks = FALSE){
   length_tib <- sum(nrow(fire_test) * length(n))
@@ -83,6 +74,7 @@ LinearRegressionFitting <- function(ticks = FALSE){
                               n = numeric(length_tib),
                               ticks_included = numeric(length_tib))
   density_means <- numeric(length(n))
+  regression_fits <- list()
 
   count <- 1
 
@@ -146,6 +138,7 @@ LinearRegressionFitting <- function(ticks = FALSE){
       
       count <- count + 1
     }
+    regression_fits <- append(regression_fits, fit_lm_density)
   }
   
   # correct format of direction_true variable
@@ -154,16 +147,18 @@ LinearRegressionFitting <- function(ticks = FALSE){
          direction_true = replace(direction_true, direction_true == 2, 8)) ->
     regression_results
   
-  return(list(regression_results, density_means))
+  return(list(regression_results, density_means, regression_fits))
 }
 ```
 
 ```{r}
 regression_results_ticks <- LinearRegressionFitting(ticks = TRUE)
 density_means_ticks <- regression_results_ticks[[2]]
+regression_fits_ticks <- regression_results_ticks[[3]]
 regression_results_ticks <- regression_results_ticks[[1]]
 regression_results_noticks <- LinearRegressionFitting(ticks = FALSE)
 density_means_noticks <- regression_results_noticks[[2]]
+regression_fits_noticks <- regression_results_noticks[[3]]
 regression_results_noticks <- regression_results_noticks[[1]]
 ```
 
@@ -373,97 +368,44 @@ regression_errors %>%
        y = 'coverage (95% \n prediction interval)')
 ```
 
-#####PREVIOUS CODE
-Plot the fit with the smallest and largest sample size:
+Fitted regression lines (smallest and largest sample size):
 ```{r}
-fire_train %>%
-  ggplot(mapping = aes(x = density, y = burn_percentage,
-                       colour = directions)) +
-  geom_point() +
-  geom_line(data = fortify(linear_regression_fit[[1]]),
-            aes(x = density, y = .fitted)) -> p1
-
-fire_train %>%
-  ggplot(mapping = aes(x = density, y = burn_percentage,
-                       colour = directions)) +
-  geom_point() +
-  geom_line(data = fortify(linear_regression_fit[[9]]),
-            aes(x = density, y = .fitted)) -> p2
-
-p1 + p2
-```
-
-
-```{r}
-linear_reg_RMSE <- rep(NA, length(n))
-linear_reg_performance <- list()
-
-for(i in 1:length(n)){
-  fit <- LinearRegFitting(n = n[i],
-                   training = fire_train,
-                   formula = 'burn_percentage ~ density + direction')
+RegressionLinePlot <- function(sample = 1, ticks = TRUE){
+  if(ticks){
+    formula <- 'density ~ burn_percentage + directions + ticks'
+    subtitle <- 'with ticks'
+  } else{
+    formula <- 'density ~ burn_percentage + directions'
+    subtitle <- 'without ticks'
+  }
   
-  linear_reg_RMSE[i] <- LinearRegError(fit = fit,
-                                           test = fire_test,
-                                           y = 'burn_percentage')
+  subtitle <- paste(subtitle, ' sample size ', n[sample])
   
-  linear_reg_performance[[i]] <- CalcPerformance(fit = fit,
-                                                 training = fire_train,
-                                                 test = fire_test)
+  ind_sample <- sample(1:nrow(fire_train), size = n[sample])
+  fire_train_sub <- fire_train[ind_sample, ]
+  
+  fire_train_sub %>%
+    ggplot(mapping = aes(x = burn_percentage, y = density,
+                         colour = directions)) +
+    geom_point() +
+    geom_line(data = fortify(lm(data = fire_train_sub,
+                                formula = formula)),
+              aes(x = burn_percentage, y = .fitted)) +
+    labs(x = '% burned trees at last tick',
+         y = 'tree density (%)',
+         subtitle = subtitle) +
+    coord_flip() -> returnplot
+
+  return(returnplot)
 }
-```
 
-Plot the errors
-```{r}
-as.data.frame(cbind(n, linear_reg_RMSE)) %>%
-  ggplot(aes(x = n, y = linear_reg_RMSE)) +
-  geom_point() +
-  labs(x = "training sample size", y = "RMSE between model outcome in test data and predicted outcome") -> p1
+p1 <- RegressionLinePlot(sample = 1, ticks = TRUE)
+p2 <- RegressionLinePlot(sample = 1, ticks = FALSE)
+p3 <- RegressionLinePlot(sample = 9, ticks = TRUE)
+p4 <- RegressionLinePlot(sample = 9, ticks = FALSE)
 
-
-linear_reg_performance <- cbind(n,
-                                matrix(unlist(linear_reg_performance),
-                                       nrow = length(n),
-                                       ncol = 2,
-                                       byrow = TRUE))
-colnames(linear_reg_performance) <- c("n", "density", "direction")
-
-as.data.frame(linear_reg_performance) %>%
-  ggplot() +
-  geom_point(aes(x = n, y = density), colour = 'green') +
-  geom_point(aes(x = n, y = direction), colour = 'red') +
-  labs(x = "training sample size", y = "performance") -> p2
-
-linear_reg_error_plot <- p1 + p2 + 
-  plot_layout(ncol = 1) +
-  plot_annotation(title = "Error progression in simple linear regression for different sample sizes",
-                  subtitle = "green points for density, red points for direction")
-
-linear_reg_error_plot
-```
-
-### Illustrate the errors for simple linear regression
-```{r}
-# use functions from `Linear regression functions.R` file
-# create plot for a number of sample sizes
-p10 <- LinearRegPlottingFire(n = 10, training = fire_train)
-p50 <- LinearRegPlottingFire(n = 50, training = fire_train)
-p100 <- LinearRegPlottingFire(n = 100, training = fire_train)
-p500 <- LinearRegPlottingFire(n = 500, training = fire_train)
-p1000 <- LinearRegPlottingFire(n = 100, training = fire_train)
-pfull <- LinearRegPlottingFire(n = nrow(fire_train),
-                          training = fire_train)
-
-# combine plots
-linear_reg_fit_plot <- p10 + p50 + p100 + p500 + p1000 + pfull +
-  # split into 2 columns
-  plot_layout(ncol = 2) +
-  # title & caption
-  plot_annotation(title = "Mutliple linear regression fit on the Fire model for different sample sizes",
-                  subtitle = "Regression fit on % burned trees ~ tree density + direction of fire spread \n")
-
-# display plot
-linear_reg_fit_plot
-
-# SAVE PLOT
+p1 + p2 + p3 + p4 +
+  plot_layout(guides = 'collect') +
+  plot_annotation(tag_levels = 'A') & 
+  theme(plot.tag = element_text(size = 8))
 ```
