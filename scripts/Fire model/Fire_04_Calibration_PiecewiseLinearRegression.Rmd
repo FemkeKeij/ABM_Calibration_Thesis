@@ -4,82 +4,406 @@ author: "Femke Keij S2647168"
 date: "2023-02-22"
 output: pdf_document
 ---
-
-## Piecewise linear regression
-Calculate the piecewise linear regression fit for each of the directions and each of the sample sizes
+# Preliminaries
+Clear working directory & set random seed:
 ```{r}
-# create data frame to store the RMSEs for each sample size and direction
-piecewise_reg_errors <- bind_cols(rep(n, 2),
-                                  c(rep(4, length(n)),
-                                         rep(8, length(n))),
-                                  rep(NA, 2 * length(n)))
-colnames(piecewise_reg_errors) <- c("N", "direction", "RMSE")
+rm(list = ls(all = TRUE))
 
-for(i in 2:length(n)){
-  fit4 <- PiecewiseRegFitting(n = n[i],
-                             training = filter(fire_train,
-                                               direction == "4"),
-                             formula = "burn_percentage ~ density")
-  fit8 <- PiecewiseRegFitting(n = n[i],
-                              training = filter(fire_train,
-                                                direction == "8"),
-                              formula = "burn_percentage ~ density")
+set.seed(42)
+```
+
+Packages used:
+```{r}
+# for piecewise linear regression
+library(segmented)
+
+# for importing / working with tidy data
+library(tidyverse)
+
+# for ggplot
+library(directlabels)
+library(patchwork)
+library(ggbeeswarm)
+```
+
+Read in the data:
+```{r}
+# complete output data
+fire_output <- read_csv('data/raw/fire_output.csv')
+
+# training data
+fire_train <- read_csv(
+  'data/processed/fire_train.csv')
+fire_train$directions <- as.factor(fire_train$directions)
+
+# test data
+fire_test <- read_csv(
+  'data/processed/fire_test.csv')
+fire_test$directions <- as.factor(fire_test$directions)
+```
+
+Random samples:
+5, 10, 20, 30, 40, 50, 60, 70, and 80 $%$ of the total parameter space.
+```{r}
+N <- nrow(fire_output)
+# range of (training) sample sizes to work with
+n <- c(0.05 * N, 0.1 * N, 0.2 * N, 0.3 * N, 0.4 * N, 0.5 * N,
+       0.6 * N, 0.7 * N, nrow(fire_train))
+```
+# Fitting
+Here, I'm fitting a piecewise linear regression to predict the density.
+```{r}
+PiecewiseRegressionFitting <- function(ticks = FALSE){
+  # table to store all output
+  length_tib <- sum(nrow(fire_test) * length(n))
+  regression_results <- tibble(direction_true = numeric(length_tib),
+                              direction_pred = numeric(length_tib),
+                              density_true = numeric(length_tib),
+                              density_pred = numeric(length_tib),
+                              density_pred_lwr = numeric(length_tib),
+                              density_pred_upr = numeric(length_tib),
+                              burn_true = numeric(length_tib),
+                              burn_pred = numeric(length_tib),
+                              n = numeric(length_tib),
+                              ticks_included = numeric(length_tib))
+  # vector to store mean density in each training sample
+  # (to calculate point prediction performance later on)
+  density_means <- numeric(length(n))
+  # list to store fitted regression lines
+  regression_fits <- list()
+
+  count <- 1
   
-  piecewise_reg_errors[i] <- 
-    rmse(fit4,
-         data = filter(fire_test, direction == "4"))
-  piecewise_reg_errors[i + length(n)] <-
-    rmse(fit8, 
-         data = filter(fire_test, direction == "8"))
-  #piecewise_reg_errors[i] <- 
-   # PiecewiseRegError(fit = fit4, 
-    #                  test = filter(fire_test, direction == "4"),
-     #                 y = 'burn_percentage')
-  #piecewise_reg_errors[i + length(n)] <- 
-   # PiecewiseRegError(fit = fit8,
-    #                  test = filter(fire_test, direction == "8"),
-     #                 y = 'burn_percentage')
+  # for each sample size
+  for(i in 1:length(n)){
+    # sample training set
+    ind_sample <- sample(1:nrow(fire_train), size = n[i])
+    fire_train_sub <- fire_train[ind_sample, ]
+    # calculate and save mean density in training set
+    density_means[i] <- mean(fire_train_sub$density)
+    
+    if(ticks == TRUE){
+      # linear regression to predict density when ticks are included
+      fit_lm_density <- lm(data = fire_train_sub,
+                               formula = 'density ~ burn_percentage + directions + ticks')
+      # logistic regression to predict directions when ticks are included
+      fit_glm_directions <- glm(data = fire_train_sub,
+                                    formula = 'directions ~ burn_percentage + density + ticks',
+                                    family = binomial(link = 'logit'))
+      
+    } else{
+      # linear regression to predict density when ticks are excluded
+      fit_lm_density <- lm(data = fire_train_sub,
+                               formula = 'density ~ burn_percentage + directions')
+      # logistic regression to predict directions when ticks are excluded
+      fit_glm_directions <- glm(data = fire_train_sub,
+                                      formula = 'directions ~ burn_percentage + density',
+                                      family = binomial(link = 'logit'))
+    }
+    # fit piecewise linear regression based on linear regression
+    seg_fit_lm_density <- segmented(fit_lm_density, seg.Z = ~ burn_percentage,
+                                    npsi = 2)
+    # predict density in test data using fitted regression
+    # include prediction interval to compute coverage later on
+    predict_lm_density <- predict.segmented(seg_fit_lm_density,
+                                             newdata = fire_test,
+                                     interval = 'prediction')
+    # predict direction in test data using fitted regression
+    predict_glm_directions <- predict.glm(fit_glm_directions,
+                                                  newdata = fire_test,
+                                                  type = 'response')
+    # correct the predicted directions from '1' and '2' to '4' and '8'
+    # to match test data
+    for(k in 1:nrow(fire_test)){
+      if(predict_glm_directions[k] < 0.5){
+        predict_glm_directions[k] <- 4
+      } else{
+        predict_glm_directions[k] <- 8
+      }
+    }
+    
+    # for each instance of the test data
+    for(j in 1:nrow(fire_test)){
+      # find an instance in the training data that matches the directions
+      # and density
+      ind <- which(fire_train$density == round(predict_lm_density[j,1]) &
+                     fire_train$directions ==
+                     predict_glm_directions[j])
+      # if there are multiple, pick one
+      if(length(ind) > 1){
+        ind <- sample(ind, size = 1)
+        # if there are none, increase density by 1 and see if there
+        # is a matching instance in the training data
+        # if not, continue until a matching instance is found
+      } else if (length(ind) == 0){
+        add <- 1
+        while(length(ind) != 1){
+          ind <- which(fire_train$density ==
+                         (round(predict_lm_density[j,1]) + add) &
+                     fire_train$directions ==
+                     predict_glm_directions[j])
+          if(length(ind) > 1){
+            ind <- sample(ind, size = 1)
+          }
+          add <- add + 1
+        }
+      }
+      # find predicted burn percentage based on training data
+      burn_pred <- fire_train$burn_percentage[ind]
+      
+      # store all results in table
+      regression_results$direction_true[count] <- fire_test$directions[j]
+      regression_results$direction_pred[count] <-
+        predict_glm_directions[j]
+      regression_results$density_true[count] <- fire_test$density[j]
+      regression_results$density_pred[count] <- predict_lm_density[j,1]
+      regression_results$density_pred_lwr[count] <-
+        predict_lm_density[j,2]
+      regression_results$density_pred_upr[count] <-
+        predict_lm_density[j,3]
+      regression_results$burn_true[count] <- fire_test$burn_percentage[j]
+      regression_results$burn_pred[count] <- burn_pred
+      regression_results$n[count] <- n[i]
+      regression_results$ticks_included[count] <- if(ticks){'yes'}else{'no'}
+      
+      count <- count + 1
+    }
+    # store regression fit
+    regression_fits <- append(regression_fits, fit_lm_density)
+  }
+  
+  # correct format of direction_true variable
+  regression_results %>%
+    mutate(direction_true = replace(direction_true, direction_true == 1, 4),
+         direction_true = replace(direction_true, direction_true == 2, 8)) ->
+    regression_results
+  
+  # return table with results, density means, and fitted regression lines
+  return(list(regression_results, density_means, regression_fits))
 }
 ```
 
 ```{r}
-piecewise_fit_4 <- lm(burn_percentage ~ density,
-                      data = filter(fire_train, direction == "4"))
+# fit piecewise regressions with ticks
+regression_results_ticks <- PiecewiseRegressionFitting(ticks = TRUE)
+density_means_ticks <- regression_results_ticks[[2]]
+regression_fits_ticks <- regression_results_ticks[[3]]
+regression_results_ticks <- regression_results_ticks[[1]]
 
-segmented_fit_4 <- segmented(piecewise_fit_4, 
-                           seg.Z = ~ density,
-                           psi = 59)
+# fit piecewise regressions without ticks
+regression_results_noticks <- PiecewiseRegressionFitting(ticks = FALSE)
+density_means_noticks <- regression_results_noticks[[2]]
+regression_fits_noticks <- regression_results_noticks[[3]]
+regression_results_noticks <- regression_results_noticks[[1]]
 ```
 
-Plot the fits
+Function to calculate the error measures for the regression lines.
+The following function summarises the following:
+- % of cases in which density is estimated correctly
+- % of cases in which the density is estimated to be within 10% of the true density
+- RMSE of the estimated density
+- NRMSE of the estimated density
+- point prediction performance of the estimated density
+- Coverage of the estimated density
 ```{r}
-newdat_4 <- as.data.frame(cbind(fire_four_output$density,
-                 broken.line(segmented_fit_4)$fit))
-newdat_8 <- as.data.frame(cbind(fire_eight_output$density,
-                 broken.line(segmented_fit_8)$fit))
+PiecewiseRegressionErrors <- function(regression_results, ticks = FALSE,
+                             density_means){
+  
+  merge(regression_results, as_tibble(cbind(n, density_means)),
+        by = c('n')) %>%
+    group_by(n) %>%
+    summarise(perc_density_correct = sum(density_true ==
+                                         round(density_pred)) /
+                nrow(fire_test),
+              perc_correct_cat = sum(density_pred >=
+                                       density_true - 5 &
+                                       density_pred <=
+                                       density_true + 5) /
+                nrow(fire_test),
+              RMSE = sqrt(sum((density_pred - density_true)^2))
+                /nrow(fire_test),
+              NRMSE = (sqrt(sum((density_pred -
+                                   density_true)^2))
+                     / nrow(fire_test)) / sd(density_true),
+              point_pred_performance = 1 - 
+                sum(sqrt((density_pred - density_true)^2)) /
+                sum(sqrt((density_true - density_means)^2)),
+              coverage = sum(density_true <= density_pred_upr &
+                               density_true >= density_pred_lwr) /
+                nrow(fire_test)) ->
+    regression_errors
+  
+  regression_errors$ticks_included <- 
+    if(ticks == TRUE){'yes'} else{'no'}
 
-ggplot() +
-  geom_point(data = fire_train, aes(x = density, y = burn_percentage,
-                                    color = direction)) +
-  geom_line(data = newdat_4, aes(x = newdat_4[, 1], y = newdat_4[, 2]),
-            colour = 'red') +
-  geom_line(data = newdat_8, aes(x = newdat_8[, 1], y = newdat_8[, 2]),
-            colour = 'blue') +
-  labs(x = "density", y = "% burned trees at last tick")
+  return(regression_errors)
+}
 ```
 
-Calculate the error (separately for each direction)
 ```{r}
-# predict values in the test set, using the segmented fit
-predict_piecewise_4 <- predict.segmented(segmented_fit_4,
-                                         newdat = filter(fire_test,
-                                                         direction == "4"))
-predict_piecewise_8 <- predict.segmented(segmented_fit_8,
-                                         newdat = filter(fire_test,
-                                                         direction == "8"))
+# run error calcualtions
+regression_errors_ticks <- PiecewiseRegressionErrors(regression_results_ticks,
+                                            ticks = TRUE,
+                                            density_means_ticks)
+regression_errors_noticks <-
+  PiecewiseRegressionErrors(regression_results_noticks,
+                                            ticks = FALSE,
+                                            density_means_noticks)
+```
 
-piecewise_rmse_4 <- sqrt(mean((filter(fire_test, direction == "4")$burn_percentage - predict_piecewise_4)^2))
+Merge results
+```{r}
+regression_results <- rbind(regression_results_noticks,
+                            regression_results_ticks)
 
-piecewise_rmse_8 <- sqrt(mean((filter(fire_test, direction == "8")$burn_percentage - predict_piecewise_8)^2))
+regression_errors <- rbind(regression_errors_noticks, regression_errors_ticks)
+``` 
+
+# Plots
+Predicted vs. true density (largest sample size only):
+```{r}
+regression_results$n <- as.factor(regression_results$n)
+regression_results$direction_true <-
+  as.factor(regression_results$direction_true)
+regression_results$direction_pred <-
+  as.factor(regression_results$direction_pred)
+
+supp_labs <- c('without ticks', 'with ticks')
+names(supp_labs) <- c('no', 'yes')
+
+regression_results %>%
+  filter(n == 1584) %>%
+  ggplot(mapping = aes(x = density_pred, y = density_true,
+                       colour = direction_true,
+                       shape = direction_pred)) +
+  facet_grid(. ~ ticks_included,
+             labeller = labeller(ticks_included = supp_labs)) +
+  geom_point() +
+  theme_minimal() +
+  labs(x = 'predicted density',
+       y = 'true density',
+       colour = 'True number of directions',
+       shape = 'Predicted number of directions') +
+  theme(panel.grid.minor.y = element_blank(),
+        panel.grid.minor.x = element_blank())
+
+ggsave('figures/fire_piecewiseregression_pred_vs_true.pdf')
+```
+
+% of predictions that are correct
+```{r}
+regression_errors$n <- as.factor(regression_errors$n)
+
+regression_errors %>%
+  filter(n == c(99, 792, 1584)) %>%
+  ggplot(mapping = aes(x = n, y = perc_density_correct,
+                       fill = ticks_included)) +
+  geom_bar(stat = 'identity',
+           position = position_dodge()) +
+  labs(y = 'density',
+       fill = 'Ticks included') +
+  theme_minimal() +
+  theme(panel.grid.major.x = element_blank(),
+        panel.grid.minor.x = element_blank()) -> p1
+
+regression_errors %>%
+  filter(n == c(99, 792, 1584)) %>%
+  ggplot(mapping = aes(x = n, y = perc_correct_cat,
+                       fill = ticks_included)) +
+  geom_bar(stat = 'identity',
+           position = position_dodge()) +
+  labs(y = 'density within \n 10% of true density',
+       fill = 'Ticks included') +
+  theme_minimal() +
+  theme(panel.grid.major.x = element_blank(),
+        panel.grid.minor.x = element_blank()) -> p2
+
+p1 + p2 +
+  plot_layout(guides = 'collect') +
+  plot_annotation(tag_levels = 'A',
+                  title = '% correctly predicted') & 
+  theme(plot.tag = element_text(size = 8))
+
+ggsave('figures/fire_piecewiseregression_perc_correct.pdf')
+```
+
+RMSE, NRMSE & point prediction performance
+```{r}
+regression_errors %>%
+  ggplot(mapping = aes(x = n, y = RMSE,
+                       fill = ticks_included)) +
+  geom_bar(stat = 'identity',
+           position = position_dodge()) +
+  labs(fill = 'Ticks included') +
+  theme_minimal() +
+  theme(panel.grid.major.x = element_blank(),
+        panel.grid.minor.x = element_blank()) -> p1
+
+regression_errors %>%
+  ggplot(mapping = aes(x = n, y = NRMSE,
+                       fill = ticks_included)) +
+  geom_bar(stat = 'identity',
+           position = position_dodge()) +
+  labs(fill = 'Ticks included') +
+  theme_minimal() +
+  theme(panel.grid.major.x = element_blank(),
+        panel.grid.minor.x = element_blank()) -> p2
+
+regression_errors %>%
+  ggplot(mapping = aes(x = n, y = point_pred_performance,
+                       fill = ticks_included)) +
+  geom_bar(stat = 'identity',
+           position = position_dodge()) +
+  labs(fill = 'Ticks included',
+       y = 'point prediction performance') +
+  theme_minimal() +
+  theme(panel.grid.major.x = element_blank(),
+        panel.grid.minor.x = element_blank()) -> p3
+
+p1 + p2 + p3 +
+  plot_layout(guides = 'collect') +
+  plot_annotation(tag_levels = 'A') & 
+  theme(plot.tag = element_text(size = 8))
+
+ggsave('figures/fire_piecewiseregression_RMSE.pdf')
+```
+
+Coverage
+```{r}
+regression_errors %>%
+  ggplot(mapping = aes(x = n, y = coverage,
+                       colour = ticks_included)) +
+  lims(y = c(0.90, 1.0)) +
+  geom_hline(yintercept = 0.95,
+             colour = 'light green') +
+  geom_beeswarm() +
+  labs(x = 'sample size',
+       colour = 'Ticks included',
+       y = 'coverage (95% \n prediction interval)') +
+  theme_minimal()
+
+ggsave('figures/fire_piecewiseregression_coverage.pdf')
+```
+
+Fitted regression lines (smallest and largest sample size):
+Linear regression for density
+```{r}
+
+dat <- data.frame(burn_percentage = fire_train$burn_percentage,
+                  density = fire_train$density,
+                  fit = broken.line(segmented_fit)$fit,
+                  directions = fire_train$directions)
+row.names(dat) <- NULL
+
+dat %>%
+    ggplot(mapping = aes(x = burn_percentage, y = density,
+                         colour = directions)) +
+    geom_point() +
+    geom_line(aes(x = burn_percentage, y = fit,
+                  linetype = directions)) +
+    labs(x = '% burned trees at last tick',
+         y = 'tree density (%)') +
+    theme_minimal() +
+    coord_flip()
 ```
 
