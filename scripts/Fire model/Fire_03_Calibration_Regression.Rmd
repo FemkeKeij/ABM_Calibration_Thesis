@@ -75,6 +75,8 @@ LinearRegressionFitting <- function(ticks = FALSE){
                               direction_pred = numeric(length_tib),
                               density_true = numeric(length_tib),
                               density_pred = numeric(length_tib),
+                              density_pred_lwr = numeric(length_tib),
+                              density_pred_upr = numeric(length_tib),
                               burn_true = numeric(length_tib),
                               burn_pred = numeric(length_tib),
                               n = numeric(length_tib),
@@ -105,7 +107,8 @@ LinearRegressionFitting <- function(ticks = FALSE){
     }
     
     predict_lm_density <- predict.lm(fit_lm_density,
-                                             newdata = fire_test)
+                                             newdata = fire_test,
+                                     interval = 'prediction')
     
     predict_glm_directions <- predict.glm(fit_glm_directions,
                                                   newdata = fire_test,
@@ -119,7 +122,7 @@ LinearRegressionFitting <- function(ticks = FALSE){
     }
     
     for(j in 1:nrow(fire_test)){
-      ind <- which(fire_train$density == round(predict_lm_density[j]) &
+      ind <- which(fire_train$density == round(predict_lm_density[j,1]) &
                      fire_train$directions ==
                      predict_glm_directions[j])
       if(length(ind) > 1){
@@ -130,7 +133,11 @@ LinearRegressionFitting <- function(ticks = FALSE){
       regression_results$direction_pred[count] <-
         predict_glm_directions[j]
       regression_results$density_true[count] <- fire_test$density[j]
-      regression_results$density_pred[count] <- predict_lm_density[j]
+      regression_results$density_pred[count] <- predict_lm_density[j,1]
+      regression_results$density_pred_lwr[count] <-
+        predict_lm_density[j,2]
+      regression_results$density_pred_upr[count] <-
+        predict_lm_density[j,3]
       regression_results$burn_true[count] <- fire_test$burn_percentage[j]
       regression_results$burn_pred[count] <- burn_pred
       regression_results$n[count] <- n[i]
@@ -149,7 +156,6 @@ LinearRegressionFitting <- function(ticks = FALSE){
   return(list(regression_results, density_means))
 }
 ```
-
 
 ```{r}
 regression_results_ticks <- LinearRegressionFitting(ticks = TRUE)
@@ -189,7 +195,10 @@ RegressionErrors <- function(regression_results, ticks = FALSE,
                      / nrow(fire_test)) / sd(density_true),
               point_pred_performance = 1 - 
                 sum(sqrt((density_pred - density_true)^2)) /
-                sum(sqrt((density_true - density_means)^2))) ->
+                sum(sqrt((density_true - density_means)^2)),
+              coverage = sum(density_true <= density_pred_upr &
+                               density_true >= density_pred_lwr) /
+                nrow(fire_test)) ->
     regression_errors
   
   regression_errors$ticks_included <- 
