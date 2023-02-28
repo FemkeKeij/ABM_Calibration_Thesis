@@ -9,7 +9,6 @@ output: pdf_document
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-
 # Preliminaries
 Clear working directory & set random seed:
 ```{r}
@@ -60,25 +59,6 @@ n <- c(0.05 * N, 0.1 * N, 0.2 * N, 0.3 * N, 0.4 * N, 0.5 * N,
 
 # Fitting
 Here I'm fitting an elastic net regression to predict density and direction.
-```{r}
-fit_density <- train(density ~ burn_percentage + directions + ticks,
-                     data = fire_train,
-                     method = 'glmnet',
-                     trControl = trainControl(method = 'cv', number = 10),
-                     tuneLength = 10)
-
-fit_direction <- train(directions ~ burn_percentage + density + ticks,
-                       data = fire_train,
-                       method = 'glmnet',
-                       trControl = trainControl(method = 'cv', number = 10),
-                       tuneLength = 10)
-
-pred_density <- predict(fit_density, newdata = fire_test)
-pred_direction <- predict(fit_direction, newdata = fire_test)
-
-```
-
-
 ```{r}
 ElasticNetFitting <- function(ticks = FALSE){
   # table to store all output
