@@ -1,0 +1,433 @@
+---
+title: "Fire_06_Calibration_ElasticNet"
+author: "Femke Keij S2647168"
+date: "2023-02-28"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+# Preliminaries
+Clear working directory & set random seed:
+```{r}
+rm(list = ls(all = TRUE))
+
+set.seed(42)
+```
+
+Packages used:
+```{r}
+# for importing / working with tidy data
+library(tidyverse)
+
+# for ggplot
+library(directlabels)
+library(patchwork)
+library(ggbeeswarm)
+
+# for fitting the elastic net
+library(caret)
+library(glmnet)
+```
+
+Read in the data:
+```{r}
+# complete output data
+fire_output <- read_csv('data/raw/fire_output.csv')
+
+# training data
+fire_train <- read_csv(
+  'data/processed/fire_train.csv')
+fire_train$directions <- as.factor(fire_train$directions)
+
+# test data
+fire_test <- read_csv(
+  'data/processed/fire_test.csv')
+fire_test$directions <- as.factor(fire_test$directions)
+```
+
+Random samples:
+5, 10, 20, 30, 40, 50, 60, 70, and 80 $%$ of the total parameter space.
+```{r}
+N <- nrow(fire_output)
+# range of (training) sample sizes to work with
+n <- c(0.05 * N, 0.1 * N, 0.2 * N, 0.3 * N, 0.4 * N, 0.5 * N,
+       0.6 * N, 0.7 * N, nrow(fire_train))
+```
+
+# Fitting
+Here I'm fitting an elastic net regression to predict density and direction.
+```{r}
+fit_density <- train(density ~ burn_percentage + directions + ticks,
+                     data = fire_train,
+                     method = 'glmnet',
+                     trControl = trainControl(method = 'cv', number = 10),
+                     tuneLength = 10)
+
+fit_direction <- train(directions ~ burn_percentage + density + ticks,
+                       data = fire_train,
+                       method = 'glmnet',
+                       trControl = trainControl(method = 'cv', number = 10),
+                       tuneLength = 10)
+
+pred_density <- predict(fit_density, newdata = fire_test)
+pred_direction <- predict(fit_direction, newdata = fire_test)
+
+```
+
+
+```{r}
+ElasticNetFitting <- function(ticks = FALSE){
+  # table to store all output
+  length_tib <- sum(nrow(fire_test) * length(n))
+  elastic_results <- tibble(direction_true = numeric(length_tib),
+                              direction_pred = numeric(length_tib),
+                              density_true = numeric(length_tib),
+                              density_pred = numeric(length_tib),
+                              burn_true = numeric(length_tib),
+                              burn_pred = numeric(length_tib),
+                              n = numeric(length_tib),
+                              ticks_included = numeric(length_tib))
+  # vector to store mean density in each training sample
+  # (to calculate point prediction performance later on)
+  density_means <- numeric(length(n))
+  # list to store fitted Elastic Nets
+  elastic_fits <- list()
+
+  count <- 1
+  
+  # for each sample size
+  for(i in 1:length(n)){
+    # sample training set
+    ind_sample <- sample(1:nrow(fire_train), size = n[i])
+    fire_train_sub <- fire_train[ind_sample, ]
+    # calculate and save mean density in training set
+    density_means[i] <- mean(fire_train_sub$density)
+    
+    # determine number of knots
+    k_burn <- length(unique(round(fire_train_sub$burn_percentage)))
+    
+    if(ticks == TRUE){
+      # Elastic Net to predict density when ticks are included
+      fit_elastic_density <- train(density ~ burn_percentage +
+                                     directions + ticks,
+                                   data = fire_train_sub,
+                                   method = 'glmnet',
+                                   trControl = 
+                                     trainControl(method = 'cv', number = 10),
+                                   tuneLength = 10)
+      # Elastic Net to predict directions when ticks are included
+      fit_elastic_directions <- train(directions ~ burn_percentage +
+                                        density + ticks,
+                                      data = fire_train_sub,
+                                      method = 'glmnet',
+                                      trControl =
+                                        trainControl(method = 'cv',
+                                                     number = 10),
+                                      tuneLength = 10)
+      
+    } else{
+      # Elastic Net to predict density when ticks are excluded
+      fit_elastic_density <- train(density ~ burn_percentage +
+                                     directions,
+                                   data = fire_train_sub,
+                                   method = 'glmnet',
+                                   trControl = 
+                                     trainControl(method = 'cv', number = 10),
+                                   tuneLength = 10)
+      # Elastic Net to predict directions when ticks are excluded
+      fit_elastic_directions <- train(directions ~ burn_percentage +
+                                        density,
+                                      data = fire_train_sub,
+                                      method = 'glmnet',
+                                      trControl =
+                                        trainControl(method = 'cv',
+                                                     number = 10),
+                                      tuneLength = 10)
+    }
+    # predict density in test data using fitted Elastic Net
+    # include SEs to compute coverage later on
+    predict_elastic_density <- predict(fit_elastic_density,
+                                       newdata = fire_test)
+    # predict direction in test data using fitted regression
+    predict_elastic_directions <- predict(fit_elastic_directions,
+                                          newdata = fire_test)
+    
+    # for each instance of the test data
+    for(j in 1:nrow(fire_test)){
+      # find an instance in the training data that matches the directions
+      # and density
+      ind <- which(fire_train$density == round(predict_elastic_density[j]) &
+                     fire_train$directions ==
+                     predict_elastic_directions[j])
+      # if there are multiple, pick one
+      if(length(ind) > 1){
+        ind <- sample(ind, size = 1)
+        # if there are none, increase density by 1 and see if there
+        # is a matching instance in the training data
+        # if not, continue until a matching instance is found
+      } else if (length(ind) == 0){
+        add <- 1
+        while(length(ind) != 1){
+          if(round(predict_elastic_density[j]) > 50){
+            add <- add * -1
+          }
+          ind <- which(fire_train$density ==
+                         (round(predict_elastic_density[j]) + add) &
+                     fire_train$directions ==
+                     predict_elastic_directions[j])
+          if(length(ind) > 1){
+            ind <- sample(ind, size = 1)
+          }
+          add <- abs(add) + 1
+        }
+      }
+      # store all results in table
+      elastic_results$direction_true[count] <- fire_test$directions[j]
+      elastic_results$direction_pred[count] <-
+        predict_elastic_directions[j]
+      elastic_results$density_true[count] <- fire_test$density[j]
+      elastic_results$density_pred[count] <- predict_elastic_density[j]
+      elastic_results$burn_true[count] <- fire_test$burn_percentage[j]
+      elastic_results$burn_pred[count] <- fire_train$burn_percentage[ind]
+      elastic_results$n[count] <- n[i]
+      elastic_results$ticks_included[count] <- if(ticks){'yes'}else{'no'}
+      
+      count <- count + 1
+    }
+    # store regression fit
+    elastic_fits <- append(elastic_fits, fit_elastic_density)
+    elastic_fits <- append(elastic_fits, fit_elastic_directions)
+    
+    print(paste('finished fitting sample size ', n[i]))
+  }
+  
+  # correct format of direction_true variable
+  elastic_results %>%
+    mutate(direction_true = replace(direction_true, direction_true == 1, 4),
+         direction_true = replace(direction_true, direction_true == 2, 8)) ->
+    elastic_results
+  
+  # return list with results, density means, and fitted regression lines
+  return(list(elastic_results, density_means, elastic_fits))
+}
+```
+
+```{r}
+# fit regressions with ticks
+elastic_results_ticks <- ElasticNetFitting(ticks = TRUE)
+density_means_ticks <- elastic_results_ticks[[2]]
+elastic_fits_ticks <- elastic_results_ticks[[3]]
+elastic_results_ticks <- elastic_results_ticks[[1]]
+
+# fit regressions without ticks
+elastic_results_noticks <- ElasticNetFitting(ticks = FALSE)
+density_means_noticks <- elastic_results_noticks[[2]]
+elastic_fits_noticks <- elastic_results_noticks[[3]]
+elastic_results_noticks <- elastic_results_noticks[[1]]
+```
+
+Function to calculate the error measures for the regression lines.
+The following function summarises the following:
+- % of cases in which both direction and density are estimated correctly
+- % of cases in which density is estimated correctly
+- % of cases in which direction is estimated correctly
+- % of cases in which the density is estimated to be within 10% of the true density
+- RMSE of the estimated density
+- NRMSE of the estimated density
+- point prediction performance of the estimated density
+```{r}
+ElasticNetErrors <- function(regression_results, ticks = FALSE,
+                             density_means){
+  
+  merge(regression_results, as_tibble(cbind(n, density_means)),
+        by = c('n')) %>%
+    group_by(n) %>%
+    summarise(perc_correct = sum(direction_true ==
+                                   direction_pred &
+                                   density_true == round(density_pred))
+                / nrow(fire_test),
+              perc_density_correct = sum(density_true ==
+                                         round(density_pred)) /
+                nrow(fire_test),
+              perc_direction_correct = sum(direction_true ==
+                                           direction_pred) /
+                nrow(fire_test),
+              perc_correct_cat = sum(density_pred >=
+                                       density_true - 5 &
+                                       density_pred <=
+                                       density_true + 5) /
+                nrow(fire_test),
+              RMSE = sqrt(sum((density_pred - density_true)^2))
+                /nrow(fire_test),
+              NRMSE = (sqrt(sum((density_pred -
+                                   density_true)^2))
+                     / nrow(fire_test)) / sd(density_true),
+              point_pred_performance = 1 - 
+                sum(sqrt((density_pred - density_true)^2)) /
+                sum(sqrt((density_true - density_means)^2))) ->
+    regression_errors
+  
+  regression_errors$ticks_included <- 
+    if(ticks == TRUE){'yes'} else{'no'}
+
+  return(regression_errors)
+}
+```
+
+```{r}
+# run error calculations
+elastic_errors_ticks <- ElasticNetErrors(elastic_results_ticks,
+                                            ticks = TRUE,
+                                            density_means_ticks)
+elastic_errors_noticks <- ElasticNetErrors(elastic_results_noticks,
+                                            ticks = FALSE,
+                                            density_means_noticks)
+```
+
+Merge results
+```{r}
+elastic_results <- rbind(elastic_results_noticks,
+                            elastic_results_ticks)
+
+elastic_errors <- rbind(elastic_errors_noticks, elastic_errors_ticks)
+``` 
+
+# Plots
+Predicted vs. true density (largest sample size only):
+```{r}
+elastic_results$n <- as.factor(elastic_results$n)
+elastic_results$direction_true <-
+  as.factor(elastic_results$direction_true)
+elastic_results$direction_pred <-
+  as.factor(elastic_results$direction_pred)
+
+supp_labs <- c('without ticks', 'with ticks')
+names(supp_labs) <- c('no', 'yes')
+
+elastic_results %>%
+  filter(n == 1584) %>%
+  ggplot(mapping = aes(x = density_pred, y = density_true,
+                       colour = direction_true,
+                       shape = direction_pred)) +
+  facet_grid(. ~ ticks_included,
+             labeller = labeller(ticks_included = supp_labs)) +
+  geom_point() +
+  theme_minimal() +
+  labs(x = 'predicted density',
+       y = 'true density',
+       colour = 'True number of directions',
+       shape = 'Predicted number of directions') +
+  theme(panel.grid.minor.y = element_blank(),
+        panel.grid.minor.x = element_blank())
+
+ggsave('figures/fire_ElasticNet_pred_vs_true.pdf')
+```
+
+% of predictions that are correct
+```{r}
+elastic_errors$n <- as.factor(elastic_errors$n)
+
+elastic_errors %>%
+  filter(n == c(99, 792, 1584)) %>%
+  ggplot(mapping = aes(x = n, y = perc_correct,
+                       fill = ticks_included)) +
+  geom_bar(stat = 'identity',
+           position = position_dodge()) +
+  labs(y = 'density & direction',
+       fill = 'Ticks included') +
+  theme_minimal() +
+  theme(panel.grid.major.x = element_blank(),
+        panel.grid.minor.x = element_blank()) -> p1
+
+elastic_errors %>%
+  filter(n == c(99, 792, 1584)) %>%
+  ggplot(mapping = aes(x = n, y = perc_density_correct,
+                       fill = ticks_included)) +
+  geom_bar(stat = 'identity',
+           position = position_dodge()) +
+  labs(y = 'density',
+       fill = 'Ticks included') +
+  theme_minimal() +
+  theme(panel.grid.major.x = element_blank(),
+        panel.grid.minor.x = element_blank()) -> p2
+
+elastic_errors %>%
+  filter(n == c(99, 792, 1584)) %>%
+  ggplot(mapping = aes(x = n, y = perc_direction_correct,
+                       fill = ticks_included)) +
+  geom_bar(stat = 'identity',
+           position = position_dodge()) +
+  labs(y = 'direction',
+       fill = 'Ticks included') +
+  theme_minimal() +
+  theme(panel.grid.major.x = element_blank(),
+        panel.grid.minor.x = element_blank()) -> p3
+
+elastic_errors %>%
+  filter(n == c(99, 792, 1584)) %>%
+  ggplot(mapping = aes(x = n, y = perc_correct_cat,
+                       fill = ticks_included)) +
+  geom_bar(stat = 'identity',
+           position = position_dodge()) +
+  labs(y = 'density within \n 10% of true density',
+       fill = 'Ticks included') +
+  theme_minimal() +
+  theme(panel.grid.major.x = element_blank(),
+        panel.grid.minor.x = element_blank()) -> p4
+
+p1 + p2 + p3 + p4 +
+  plot_layout(guides = 'collect') +
+  plot_annotation(tag_levels = 'A',
+                  title = '% correctly predicted') & 
+  theme(plot.tag = element_text(size = 8))
+
+ggsave('figures/fire_ElasticNet_perc_correct.pdf')
+```
+
+RMSE, NRMSE & point prediction performance
+```{r}
+elastic_errors %>%
+  ggplot(mapping = aes(x = n, y = RMSE,
+                       fill = ticks_included)) +
+  geom_bar(stat = 'identity',
+           position = position_dodge()) +
+  labs(fill = 'Ticks included') +
+  theme_minimal() +
+  theme(panel.grid.major.x = element_blank(),
+        panel.grid.minor.x = element_blank()) +
+  coord_flip() -> p1
+
+elastic_errors %>%
+  ggplot(mapping = aes(x = n, y = NRMSE,
+                       fill = ticks_included)) +
+  geom_bar(stat = 'identity',
+           position = position_dodge()) +
+  labs(fill = 'Ticks included') +
+  theme_minimal() +
+  theme(panel.grid.major.x = element_blank(),
+        panel.grid.minor.x = element_blank()) +
+  coord_flip() -> p2
+
+elastic_errors %>%
+  ggplot(mapping = aes(x = n, y = point_pred_performance,
+                       fill = ticks_included)) +
+  geom_bar(stat = 'identity',
+           position = position_dodge()) +
+  labs(fill = 'Ticks included',
+       y = 'point prediction performance') +
+  theme_minimal() +
+  theme(panel.grid.major.x = element_blank(),
+        panel.grid.minor.x = element_blank()) +
+  coord_flip() -> p3
+
+p1 + p2 + p3 +
+  plot_layout(guides = 'collect') +
+  plot_annotation(tag_levels = 'A') & 
+  theme(plot.tag = element_text(size = 8))
+
+ggsave('figures/fire_ElasticNet_RMSE.pdf')
+```
