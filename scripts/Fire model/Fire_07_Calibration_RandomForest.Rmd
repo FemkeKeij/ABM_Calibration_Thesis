@@ -1,7 +1,7 @@
 ---
-title: "Fire_06_Calibration_ElasticNet"
+title: "Fire_07_Calibration_RandomForest"
 author: "Femke Keij S2647168"
-date: "2023-02-28"
+date: "2023-02-14"
 output: pdf_document
 ---
 
@@ -27,9 +27,8 @@ library(directlabels)
 library(patchwork)
 library(ggbeeswarm)
 
-# for fitting the elastic net
-library(caret)
-library(glmnet)
+# for fitting the random forest
+library(randomForest)
 ```
 
 Read in the data:
@@ -58,12 +57,23 @@ n <- c(0.05 * N, 0.1 * N, 0.2 * N, 0.3 * N, 0.4 * N, 0.5 * N,
 ```
 
 # Fitting
-Here I'm fitting an elastic net regression to predict density and direction.
 ```{r}
-ElasticNetFitting <- function(ticks = FALSE){
+fit_density <- randomForest(density ~ burn_percentage + directions + ticks,
+                            data = fire_train)
+fit_direction <- randomForest(directions ~ burn_percentage + density + ticks,
+                              data = fire_train)
+
+predict(fit_density, newdata = fire_test)
+pred_direction <- predict(fit_direction, newdata = fire_test)
+```
+
+
+Here I'm fitting a random forest to predict density and direction.
+```{r}
+RandomForestFitting <- function(ticks = FALSE){
   # table to store all output
   length_tib <- sum(nrow(fire_test) * length(n))
-  elastic_results <- tibble(direction_true = numeric(length_tib),
+  forest_results <- tibble(direction_true = numeric(length_tib),
                               direction_pred = numeric(length_tib),
                               density_true = numeric(length_tib),
                               density_pred = numeric(length_tib),
@@ -75,7 +85,7 @@ ElasticNetFitting <- function(ticks = FALSE){
   # (to calculate point prediction performance later on)
   density_means <- numeric(length(n))
   # list to store fitted Elastic Nets
-  elastic_fits <- list()
+  forest_fits <- list()
 
   count <- 1
   
@@ -87,62 +97,40 @@ ElasticNetFitting <- function(ticks = FALSE){
     # calculate and save mean density in training set
     density_means[i] <- mean(fire_train_sub$density)
     
-    # determine number of knots
-    k_burn <- length(unique(round(fire_train_sub$burn_percentage)))
-    
     if(ticks == TRUE){
-      # Elastic Net to predict density when ticks are included
-      fit_elastic_density <- train(density ~ burn_percentage +
-                                     directions + ticks,
-                                   data = fire_train_sub,
-                                   method = 'glmnet',
-                                   trControl = 
-                                     trainControl(method = 'cv', number = 10),
-                                   tuneLength = 10)
-      # Elastic Net to predict directions when ticks are included
-      fit_elastic_directions <- train(directions ~ burn_percentage +
-                                        density + ticks,
-                                      data = fire_train_sub,
-                                      method = 'glmnet',
-                                      trControl =
-                                        trainControl(method = 'cv',
-                                                     number = 10),
-                                      tuneLength = 10)
+      # random forest to predict density when ticks are included
+      fit_forest_density <- randomForest(density ~ burn_percentage +
+                                            directions + ticks,
+                                          data = fire_train_sub)
+      # random forest to predict directions when ticks are included
+      fit_forest_directions <- randomForest(directions ~ burn_percentage +
+                                               density + ticks,
+                                             data = fire_train_sub)
       
     } else{
-      # Elastic Net to predict density when ticks are excluded
-      fit_elastic_density <- train(density ~ burn_percentage +
-                                     directions,
-                                   data = fire_train_sub,
-                                   method = 'glmnet',
-                                   trControl = 
-                                     trainControl(method = 'cv', number = 10),
-                                   tuneLength = 10)
-      # Elastic Net to predict directions when ticks are excluded
-      fit_elastic_directions <- train(directions ~ burn_percentage +
-                                        density,
-                                      data = fire_train_sub,
-                                      method = 'glmnet',
-                                      trControl =
-                                        trainControl(method = 'cv',
-                                                     number = 10),
-                                      tuneLength = 10)
+      # random forest to predict density when ticks are excluded
+      fit_forest_density <- randomForest(density ~ burn_percentage +
+                                           directions,
+                                         data = fire_train_sub)
+      # random forest to predict directions when ticks are excluded
+      fit_forest_directions <- randomForest(directions ~ burn_percentage +
+                                              density,
+                                            data = fire_train_sub)
     }
-    # predict density in test data using fitted Elastic Net
-    # include SEs to compute coverage later on
-    predict_elastic_density <- predict(fit_elastic_density,
+    # predict density in test data using fitted random forest
+    predict_forest_density <- predict(fit_forest_density,
                                        newdata = fire_test)
-    # predict direction in test data using fitted regression
-    predict_elastic_directions <- predict(fit_elastic_directions,
+    # predict direction in test data using fitted random forest
+    predict_forest_directions <- predict(fit_forest_directions,
                                           newdata = fire_test)
     
     # for each instance of the test data
     for(j in 1:nrow(fire_test)){
       # find an instance in the training data that matches the directions
       # and density
-      ind <- which(fire_train$density == round(predict_elastic_density[j]) &
+      ind <- which(fire_train$density == round(predict_forest_density[j]) &
                      fire_train$directions ==
-                     predict_elastic_directions[j])
+                     predict_forest_directions[j])
       # if there are multiple, pick one
       if(length(ind) > 1){
         ind <- sample(ind, size = 1)
@@ -152,13 +140,13 @@ ElasticNetFitting <- function(ticks = FALSE){
       } else if (length(ind) == 0){
         add <- 1
         while(length(ind) != 1){
-          if(round(predict_elastic_density[j]) > 50){
+          if(round(predict_forest_density[j]) > 50){
             add <- add * -1
           }
           ind <- which(fire_train$density ==
-                         (round(predict_elastic_density[j]) + add) &
+                         (round(predict_forest_density[j]) + add) &
                      fire_train$directions ==
-                     predict_elastic_directions[j])
+                     predict_forest_directions[j])
           if(length(ind) > 1){
             ind <- sample(ind, size = 1)
           }
@@ -166,50 +154,50 @@ ElasticNetFitting <- function(ticks = FALSE){
         }
       }
       # store all results in table
-      elastic_results$direction_true[count] <- fire_test$directions[j]
-      elastic_results$direction_pred[count] <-
-        predict_elastic_directions[j]
-      elastic_results$density_true[count] <- fire_test$density[j]
-      elastic_results$density_pred[count] <- predict_elastic_density[j]
-      elastic_results$burn_true[count] <- fire_test$burn_percentage[j]
-      elastic_results$burn_pred[count] <- fire_train$burn_percentage[ind]
-      elastic_results$n[count] <- n[i]
-      elastic_results$ticks_included[count] <- if(ticks){'yes'}else{'no'}
+      forest_results$direction_true[count] <- fire_test$directions[j]
+      forest_results$direction_pred[count] <-
+        predict_forest_directions[j]
+      forest_results$density_true[count] <- fire_test$density[j]
+      forest_results$density_pred[count] <- predict_forest_density[j]
+      forest_results$burn_true[count] <- fire_test$burn_percentage[j]
+      forest_results$burn_pred[count] <- fire_train$burn_percentage[ind]
+      forest_results$n[count] <- n[i]
+      forest_results$ticks_included[count] <- if(ticks){'yes'}else{'no'}
       
       count <- count + 1
     }
     # store regression fit
-    elastic_fits <- append(elastic_fits, fit_elastic_density)
-    elastic_fits <- append(elastic_fits, fit_elastic_directions)
+    forest_fits <- append(forest_fits, fit_forest_density)
+    forest_fits <- append(forest_fits, fit_forest_directions)
     
     print(paste('finished fitting sample size ', n[i]))
   }
   
   # correct format of direction_true variable
-  elastic_results %>%
+  forest_results %>%
     mutate(direction_true = replace(direction_true, direction_true == 1, 4),
          direction_true = replace(direction_true, direction_true == 2, 8),
          direction_pred = replace(direction_pred, direction_pred == 1, 4),
          direction_pred = replace(direction_pred, direction_pred == 2, 8)) ->
-    elastic_results
+    forest_results
   
-  # return list with results, density means, and fitted regression lines
-  return(list(elastic_results, density_means, elastic_fits))
+  # return list with results, density means, and fitted random forests
+  return(list(forest_results, density_means, forest_fits))
 }
 ```
 
 ```{r}
 # fit regressions with ticks
-elastic_results_ticks <- ElasticNetFitting(ticks = TRUE)
-density_means_ticks <- elastic_results_ticks[[2]]
-elastic_fits_ticks <- elastic_results_ticks[[3]]
-elastic_results_ticks <- elastic_results_ticks[[1]]
+forest_results_ticks <- RandomForestFitting(ticks = TRUE)
+density_means_ticks <- forest_results_ticks[[2]]
+forest_fits_ticks <- forest_results_ticks[[3]]
+forest_results_ticks <- forest_results_ticks[[1]]
 
 # fit regressions without ticks
-elastic_results_noticks <- ElasticNetFitting(ticks = FALSE)
-density_means_noticks <- elastic_results_noticks[[2]]
-elastic_fits_noticks <- elastic_results_noticks[[3]]
-elastic_results_noticks <- elastic_results_noticks[[1]]
+forest_results_noticks <- RandomForestFitting(ticks = FALSE)
+density_means_noticks <- forest_results_noticks[[2]]
+forest_fits_noticks <- forest_results_noticks[[3]]
+forest_results_noticks <- forest_results_noticks[[1]]
 ```
 
 Function to calculate the error measures for the regression lines.
@@ -222,7 +210,7 @@ The following function summarises the following:
 - NRMSE of the estimated density
 - point prediction performance of the estimated density
 ```{r}
-ElasticNetErrors <- function(regression_results, ticks = FALSE,
+RandomForestErrors <- function(regression_results, ticks = FALSE,
                              density_means){
   
   merge(regression_results, as_tibble(cbind(n, density_means)),
@@ -262,35 +250,35 @@ ElasticNetErrors <- function(regression_results, ticks = FALSE,
 
 ```{r}
 # run error calculations
-elastic_errors_ticks <- ElasticNetErrors(elastic_results_ticks,
+forest_errors_ticks <- RandomForestErrors(forest_results_ticks,
                                             ticks = TRUE,
                                             density_means_ticks)
-elastic_errors_noticks <- ElasticNetErrors(elastic_results_noticks,
+forest_errors_noticks <- RandomForestErrors(forest_results_noticks,
                                             ticks = FALSE,
                                             density_means_noticks)
 ```
 
 Merge results
 ```{r}
-elastic_results <- rbind(elastic_results_noticks,
-                            elastic_results_ticks)
+forest_results <- rbind(forest_results_noticks,
+                            forest_results_ticks)
 
-elastic_errors <- rbind(elastic_errors_noticks, elastic_errors_ticks)
+forest_errors <- rbind(forest_errors_noticks, forest_errors_ticks)
 ``` 
 
 # Plots
 Predicted vs. true density (largest sample size only):
 ```{r}
-elastic_results$n <- as.factor(elastic_results$n)
-elastic_results$direction_true <-
-  as.factor(elastic_results$direction_true)
-elastic_results$direction_pred <-
-  as.factor(elastic_results$direction_pred)
+forest_results$n <- as.factor(forest_results$n)
+forest_results$direction_true <-
+  as.factor(forest_results$direction_true)
+forest_results$direction_pred <-
+  as.factor(forest_results$direction_pred)
 
 supp_labs <- c('without ticks', 'with ticks')
 names(supp_labs) <- c('no', 'yes')
 
-elastic_results %>%
+forest_results %>%
   filter(n == 1584) %>%
   ggplot(mapping = aes(x = density_pred, y = density_true,
                        colour = direction_true,
@@ -306,14 +294,14 @@ elastic_results %>%
   theme(panel.grid.minor.y = element_blank(),
         panel.grid.minor.x = element_blank())
 
-ggsave('figures/fire_ElasticNet_pred_vs_true.pdf')
+ggsave('figures/fire_RandomForest_pred_vs_true.pdf')
 ```
 
 % of predictions that are correct
 ```{r}
-elastic_errors$n <- as.factor(elastic_errors$n)
+forest_errors$n <- as.factor(forest_errors$n)
 
-elastic_errors %>%
+forest_errors %>%
   filter(n == c(99, 792, 1584)) %>%
   ggplot(mapping = aes(x = n, y = perc_correct,
                        fill = ticks_included)) +
@@ -325,7 +313,7 @@ elastic_errors %>%
   theme(panel.grid.major.x = element_blank(),
         panel.grid.minor.x = element_blank()) -> p1
 
-elastic_errors %>%
+forest_errors %>%
   filter(n == c(99, 792, 1584)) %>%
   ggplot(mapping = aes(x = n, y = perc_density_correct,
                        fill = ticks_included)) +
@@ -337,7 +325,7 @@ elastic_errors %>%
   theme(panel.grid.major.x = element_blank(),
         panel.grid.minor.x = element_blank()) -> p2
 
-elastic_errors %>%
+forest_errors %>%
   filter(n == c(99, 792, 1584)) %>%
   ggplot(mapping = aes(x = n, y = perc_direction_correct,
                        fill = ticks_included)) +
@@ -349,7 +337,7 @@ elastic_errors %>%
   theme(panel.grid.major.x = element_blank(),
         panel.grid.minor.x = element_blank()) -> p3
 
-elastic_errors %>%
+forest_errors %>%
   filter(n == c(99, 792, 1584)) %>%
   ggplot(mapping = aes(x = n, y = perc_correct_cat,
                        fill = ticks_included)) +
@@ -367,12 +355,12 @@ p1 + p2 + p3 + p4 +
                   title = '% correctly predicted') & 
   theme(plot.tag = element_text(size = 8))
 
-ggsave('figures/fire_ElasticNet_perc_correct.pdf')
+ggsave('figures/fire_RandomForest_perc_correct.pdf')
 ```
 
 RMSE, NRMSE & point prediction performance
 ```{r}
-elastic_errors %>%
+forest_errors %>%
   ggplot(mapping = aes(x = n, y = RMSE,
                        fill = ticks_included)) +
   geom_bar(stat = 'identity',
@@ -383,7 +371,7 @@ elastic_errors %>%
         panel.grid.minor.x = element_blank()) +
   coord_flip() -> p1
 
-elastic_errors %>%
+forest_errors %>%
   ggplot(mapping = aes(x = n, y = NRMSE,
                        fill = ticks_included)) +
   geom_bar(stat = 'identity',
@@ -394,7 +382,7 @@ elastic_errors %>%
         panel.grid.minor.x = element_blank()) +
   coord_flip() -> p2
 
-elastic_errors %>%
+forest_errors %>%
   ggplot(mapping = aes(x = n, y = point_pred_performance,
                        fill = ticks_included)) +
   geom_bar(stat = 'identity',
@@ -411,5 +399,5 @@ p1 + p2 + p3 +
   plot_annotation(tag_levels = 'A') & 
   theme(plot.tag = element_text(size = 8))
 
-ggsave('figures/fire_ElasticNet_RMSE.pdf')
+ggsave('figures/fire_RandomForest_RMSE.pdf')
 ```
