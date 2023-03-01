@@ -270,6 +270,9 @@ regression_results$direction_true <-
   as.factor(regression_results$direction_true)
 regression_results$direction_pred <-
   as.factor(regression_results$direction_pred)
+regression_results %>%
+  mutate(direction_correct = (direction_pred == direction_true)) ->
+  regression_results
 
 supp_labs <- c('without ticks', 'with ticks')
 names(supp_labs) <- c('no', 'yes')
@@ -277,16 +280,14 @@ names(supp_labs) <- c('no', 'yes')
 regression_results %>%
   filter(n == 1584) %>%
   ggplot(mapping = aes(x = density_pred, y = density_true,
-                       colour = direction_true,
-                       shape = direction_pred)) +
+                       colour = direction_correct)) +
   facet_grid(. ~ ticks_included,
              labeller = labeller(ticks_included = supp_labs)) +
   geom_point() +
   theme_minimal() +
   labs(x = 'predicted density',
        y = 'true density',
-       colour = 'True number of directions',
-       shape = 'Predicted number of directions') +
+       colour = 'Number of directions \n predicted correctly') +
   theme(panel.grid.minor.y = element_blank(),
         panel.grid.minor.x = element_blank())
 

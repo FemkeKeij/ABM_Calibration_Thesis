@@ -286,6 +286,9 @@ elastic_results$direction_true <-
   as.factor(elastic_results$direction_true)
 elastic_results$direction_pred <-
   as.factor(elastic_results$direction_pred)
+elastic_results %>%
+  mutate(direction_correct = (direction_pred == direction_true)) ->
+  elastic_results
 
 supp_labs <- c('without ticks', 'with ticks')
 names(supp_labs) <- c('no', 'yes')
@@ -293,15 +296,14 @@ names(supp_labs) <- c('no', 'yes')
 elastic_results %>%
   filter(n == 1584) %>%
   ggplot(mapping = aes(x = density_pred, y = density_true,
-                       colour = direction_true,
-                       shape = direction_pred)) +
+                       colour = direction_correct)) +
   facet_grid(. ~ ticks_included,
              labeller = labeller(ticks_included = supp_labs)) +
   geom_point() +
   theme_minimal() +
   labs(x = 'predicted density',
        y = 'true density',
-       colour = 'True number of directions',
+       colour = 'Number of directions \n predicted correctly',
        shape = 'Predicted number of directions') +
   theme(panel.grid.minor.y = element_blank(),
         panel.grid.minor.x = element_blank())
