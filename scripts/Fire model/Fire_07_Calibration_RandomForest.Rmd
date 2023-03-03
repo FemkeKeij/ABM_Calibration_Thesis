@@ -57,17 +57,6 @@ n <- c(0.05 * N, 0.1 * N, 0.2 * N, 0.3 * N, 0.4 * N, 0.5 * N,
 ```
 
 # Fitting
-```{r}
-fit_density <- randomForest(density ~ burn_percentage + directions + ticks,
-                            data = fire_train)
-fit_direction <- randomForest(directions ~ burn_percentage + density + ticks,
-                              data = fire_train)
-
-predict(fit_density, newdata = fire_test)
-pred_direction <- predict(fit_direction, newdata = fire_test)
-```
-
-
 Here I'm fitting a random forest to predict density and direction.
 ```{r}
 RandomForestFitting <- function(ticks = FALSE){

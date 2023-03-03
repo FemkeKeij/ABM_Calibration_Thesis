@@ -223,14 +223,19 @@ LatinHypercubeErrors <- function(lhs_results,
                                        density_pred <=
                                        density_true + 5) /
                 nrow(fire_test),
-              RMSE = sqrt(sum((density_pred - density_true)^2))
+              RMSE_density = sqrt(sum((density_pred - density_true)^2))
                 /nrow(fire_test),
-              NRMSE = (sqrt(sum((density_pred -
+              NRMSE_density = (sqrt(sum((density_pred -
                                    density_true)^2))
                      / nrow(fire_test)) / sd(density_true),
               point_pred_performance = 1 - 
                 sum(sqrt((density_pred - density_true)^2)) /
-                sum(sqrt((density_true - means)^2))) ->
+                sum(sqrt((density_true - means)^2)),
+              RMSE_burn = sqrt(sum((burn_pred - burn_true)^2))
+                /nrow(fire_test),
+              NRMSE_burn = (sqrt(sum((burn_pred -
+                                   burn_true)^2))
+                     / nrow(fire_test)) / sd(burn_true)) ->
     lhs_errors
   
   lhs_errors$ticks_included <- 
@@ -274,91 +279,115 @@ lhs_errors <- rbind(lhs_errors_noticks, lhs_errors_ticks)
 # Plots
 Predicted vs. true density (largest sample size only):
 ```{r}
+PlotPredTrueDensity <- function(results, n){
+  # results: data frame with fitting results
+  # n: sample size for which to plot
+  supp_labs <- c('without ticks', 'with ticks')
+  names(supp_labs) <- c('no', 'yes')
+  
+  results %>%
+    filter(n == n) %>%
+    ggplot(mapping = aes(x = density_pred,
+                         y = density_true,
+                         colour = direction_correct)) +
+    facet_grid(. ~ ticks_included,
+               labeller = labeller(ticks_included = supp_labs)) +
+    geom_point() +
+    theme_minimal() +
+    labs(x = 'predicted density',
+         y = 'true density',
+         colour = 'Number of directions \n predicted correctly') +
+    theme(panel.grid.minor.y = element_blank(),
+          panel.grid.minor.x = element_blank()) -> plot
+  
+  return(plot)
+}
+```
+
+
+```{r}
 lhs_results$n <- as.factor(lhs_results$n)
 lhs_results$direction_true <-
   as.factor(lhs_results$direction_true)
 lhs_results$direction_pred <-
   as.factor(lhs_results$direction_pred)
-
-supp_labs <- c('without ticks', 'with ticks')
-names(supp_labs) <- c('no', 'yes')
-
 lhs_results %>%
-  filter(n == 1584) %>%
-  ggplot(mapping = aes(x = density_pred, y = density_true,
-                       colour = direction_true,
-                       shape = direction_pred)) +
-  facet_grid(. ~ ticks_included,
-             labeller = labeller(ticks_included = supp_labs)) +
-  geom_point() +
-  theme_minimal() +
-  labs(x = 'predicted density',
-       y = 'true density',
-       colour = 'True number of directions',
-       shape = 'Predicted number of directions') +
-  theme(panel.grid.minor.y = element_blank(),
-        panel.grid.minor.x = element_blank())
+  mutate(direction_correct = (direction_pred == direction_true)) -> lhs_results
+
+PlotPredTrueDensity(lhs_results, n = 1584)
 
 ggsave('figures/fire_LHS_pred_vs_true.pdf')
 ```
 
 % of predictions that are correct
 ```{r}
-lhs_errors$n <- as.factor(lhs_errors$n)
-
-lhs_errors %>%
-  filter(n == c(99, 792, 1584)) %>%
-  ggplot(mapping = aes(x = n, y = perc_correct,
-                       fill = ticks_included)) +
-  geom_bar(stat = 'identity',
-           position = position_dodge()) +
-  labs(y = 'density & direction',
-       fill = 'Ticks included') +
-  theme_minimal() +
-  theme(panel.grid.major.x = element_blank(),
+PlotPercCorrect <- function(errors, n_plot){
+  # errors: data frame with calculated error measures
+  # n_plot: sample sizes to plot (can be multiple)
+  errors %>%
+    filter(n %in% n_plot)%>%
+    ggplot(mapping = aes(x = n, y = perc_correct,
+                         fill = ticks_included)) +
+    geom_bar(stat = 'identity',
+             position = position_dodge()) +
+    labs(y = 'density & direction',
+         x = 'training sample size',
+         fill = 'Ticks included') +
+    theme_minimal() +
+    theme(panel.grid.major.x = element_blank(),
         panel.grid.minor.x = element_blank()) -> p1
+  
+  errors %>%
+    filter(n %in% n_plot) %>%
+    ggplot(mapping = aes(x = n, y = perc_density_correct,
+                         fill = ticks_included)) +
+    geom_bar(stat = 'identity',
+             position = position_dodge()) +
+    labs(y = 'density',
+         x = 'training sample size',
+         fill = 'Ticks included') +
+    theme_minimal() +
+    theme(panel.grid.major.x = element_blank(),
+          panel.grid.minor.x = element_blank()) -> p2
+  
+  errors %>%
+    filter(n %in% n_plot) %>%
+    ggplot(mapping = aes(x = n, y = perc_direction_correct,
+                         fill = ticks_included)) +
+    geom_bar(stat = 'identity',
+             position = position_dodge()) +
+    labs(y = 'direction',
+         x = 'training sample size',
+         fill = 'Ticks included') +
+    theme_minimal() +
+    theme(panel.grid.major.x = element_blank(),
+          panel.grid.minor.x = element_blank()) -> p3
+  
+  errors %>%
+    filter(n %in% n_plot) %>%
+    ggplot(mapping = aes(x = n, y = perc_correct_cat,
+                         fill = ticks_included)) +
+    geom_bar(stat = 'identity',
+             position = position_dodge()) +
+    labs(y = 'density within \n 10% of true density',
+         x = 'training sample size',
+         fill = 'Ticks included') +
+    theme_minimal() +
+    theme(panel.grid.major.x = element_blank(),
+          panel.grid.minor.x = element_blank()) -> p4
 
-lhs_errors %>%
-  filter(n == c(99, 792, 1584)) %>%
-  ggplot(mapping = aes(x = n, y = perc_density_correct,
-                       fill = ticks_included)) +
-  geom_bar(stat = 'identity',
-           position = position_dodge()) +
-  labs(y = 'density',
-       fill = 'Ticks included') +
-  theme_minimal() +
-  theme(panel.grid.major.x = element_blank(),
-        panel.grid.minor.x = element_blank()) -> p2
+  plot <- p1 + p2 + p3 + p4 +
+    plot_layout(guides = 'collect') +
+    plot_annotation(tag_levels = 'A',
+                    title = '% correctly predicted') & 
+    theme(plot.tag = element_text(size = 8))
+  
+  return(plot)
+}
+```
 
-lhs_errors %>%
-  filter(n == c(99, 792, 1584)) %>%
-  ggplot(mapping = aes(x = n, y = perc_direction_correct,
-                       fill = ticks_included)) +
-  geom_bar(stat = 'identity',
-           position = position_dodge()) +
-  labs(y = 'direction',
-       fill = 'Ticks included') +
-  theme_minimal() +
-  theme(panel.grid.major.x = element_blank(),
-        panel.grid.minor.x = element_blank()) -> p3
-
-lhs_errors %>%
-  filter(n == c(99, 792, 1584)) %>%
-  ggplot(mapping = aes(x = n, y = perc_correct_cat,
-                       fill = ticks_included)) +
-  geom_bar(stat = 'identity',
-           position = position_dodge()) +
-  labs(y = 'density within \n 10% of true density',
-       fill = 'Ticks included') +
-  theme_minimal() +
-  theme(panel.grid.major.x = element_blank(),
-        panel.grid.minor.x = element_blank()) -> p4
-
-p1 + p2 + p3 + p4 +
-  plot_layout(guides = 'collect') +
-  plot_annotation(tag_levels = 'A',
-                  title = '% correctly predicted') & 
-  theme(plot.tag = element_text(size = 8))
+```{r}
+PlotPercCorrect(lhs_errors, n_plot = c(99, 792, 1584))
 
 ggsave('figures/fire_LHS_perc_correct.pdf')
 ```
@@ -366,7 +395,7 @@ ggsave('figures/fire_LHS_perc_correct.pdf')
 RMSE, NRMSE & point prediction performance
 ```{r}
 lhs_errors %>%
-  ggplot(mapping = aes(x = n, y = RMSE,
+  ggplot(mapping = aes(x = n, y = RMSE_density,
                        fill = ticks_included)) +
   geom_bar(stat = 'identity',
            position = position_dodge()) +
@@ -376,7 +405,7 @@ lhs_errors %>%
         panel.grid.minor.x = element_blank()) -> p1
 
 lhs_errors %>%
-  ggplot(mapping = aes(x = n, y = NRMSE,
+  ggplot(mapping = aes(x = n, y = NRMSE_density,
                        fill = ticks_included)) +
   geom_bar(stat = 'identity',
            position = position_dodge()) +
@@ -402,4 +431,19 @@ p1 + p2 + p3 +
   theme(plot.tag = element_text(size = 8))
 
 ggsave('figures/fire_LHS_RMSE.pdf')
+```
+
+RMSE for burn percentage:
+```{r}
+lhs_errors %>%
+  ggplot(mapping = aes(x = n, y = RMSE_burn,
+                       fill = ticks_included)) +
+  geom_bar(stat = 'identity',
+           position = position_dodge()) +
+  labs(fill = 'Ticks included') +
+  theme_minimal() +
+  theme(panel.grid.major.x = element_blank(),
+        panel.grid.minor.x = element_blank()) +
+  labs(x = 'Training sample size',
+       y = 'RMSE burn percentage')
 ```
