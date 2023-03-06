@@ -28,6 +28,12 @@ library(patchwork)
 library(ggbeeswarm)
 ```
 
+Source files for error computation and plotting functions:
+```{r}
+source('scripts/Fire model/Fire_ErrorPlots.R')
+source('scripts/Fire model/Fire_ErrorCalc.R')
+```
+
 Read in the data:
 ```{r}
 # complete output data
@@ -181,66 +187,16 @@ regression_fits_noticks <- regression_results_noticks[[3]]
 regression_results_noticks <- regression_results_noticks[[1]]
 ```
 
-Function to calculate the error measures for the regression lines.
-The following function summarises the following:
-- % of cases in which both direction and density are estimated correctly
-- % of cases in which density is estimated correctly
-- % of cases in which direction is estimated correctly
-- % of cases in which the density is estimated to be within 10% of the true density
-- RMSE of the estimated density
-- NRMSE of the estimated density
-- point prediction performance of the estimated density
-- Coverage of the estimated density
-```{r}
-RegressionErrors <- function(regression_results, ticks = FALSE,
-                             density_means){
-  
-  merge(regression_results, as_tibble(cbind(n, density_means)),
-        by = c('n')) %>%
-    group_by(n) %>%
-    summarise(perc_correct = sum(direction_true ==
-                                   direction_pred &
-                                   density_true == round(density_pred))
-                / nrow(fire_test),
-              perc_density_correct = sum(density_true ==
-                                         round(density_pred)) /
-                nrow(fire_test),
-              perc_direction_correct = sum(direction_true ==
-                                           direction_pred) /
-                nrow(fire_test),
-              perc_correct_cat = sum(density_pred >=
-                                       density_true - 5 &
-                                       density_pred <=
-                                       density_true + 5) /
-                nrow(fire_test),
-              RMSE = sqrt(sum((density_pred - density_true)^2))
-                /nrow(fire_test),
-              NRMSE = (sqrt(sum((density_pred -
-                                   density_true)^2))
-                     / nrow(fire_test)) / sd(density_true),
-              point_pred_performance = 1 - 
-                sum(sqrt((density_pred - density_true)^2)) /
-                sum(sqrt((density_true - density_means)^2)),
-              coverage = sum(density_true <= density_pred_upr &
-                               density_true >= density_pred_lwr) /
-                nrow(fire_test)) ->
-    regression_errors
-  
-  regression_errors$ticks_included <- 
-    if(ticks == TRUE){'yes'} else{'no'}
-
-  return(regression_errors)
-}
-```
-
 ```{r}
 # run error calcualtions
-regression_errors_ticks <- RegressionErrors(regression_results_ticks,
-                                            ticks = TRUE,
-                                            density_means_ticks)
-regression_errors_noticks <- RegressionErrors(regression_results_noticks,
-                                            ticks = FALSE,
-                                            density_means_noticks)
+regression_errors_ticks <- ComputeErrors(regression_results_ticks,
+                                         ticks = TRUE,
+                                         density_means_ticks,
+                                         pred_int_included = TRUE)
+regression_errors_noticks <- ComputeErrors(regression_results_noticks,
+                                           ticks = FALSE,
+                                           density_means_noticks,
+                                           pred_int_included = TRUE)
 ```
 
 Merge results
@@ -252,155 +208,55 @@ regression_errors <- rbind(regression_errors_noticks, regression_errors_ticks)
 ``` 
 
 # Plots
-Predicted vs. true density (largest sample size only):
+Fix results and errors data frames:
 ```{r}
 regression_results$n <- as.factor(regression_results$n)
+regression_errors$n <- as.factor(regression_errors$n)
 regression_results$direction_true <-
   as.factor(regression_results$direction_true)
 regression_results$direction_pred <-
   as.factor(regression_results$direction_pred)
 regression_results %>%
-  mutate(direction_correct = (direction_pred == direction_true)) -> 
-  regression_results
-
-supp_labs <- c('without ticks', 'with ticks')
-names(supp_labs) <- c('no', 'yes')
-
-regression_results %>%
-  filter(n == 1584) %>%
-  ggplot(mapping = aes(x = density_pred, y = density_true,
-                       colour = direction_correct)) +
-  facet_grid(. ~ ticks_included,
-             labeller = labeller(ticks_included = supp_labs)) +
-  geom_point() +
-  theme_minimal() +
-  labs(x = 'predicted density',
-       y = 'true density',
-       colour = 'Number of directions \n predicted correctly') +
-  theme(panel.grid.minor.y = element_blank(),
-        panel.grid.minor.x = element_blank())
-
-ggsave('figures/fire_regression_pred_vs_true.pdf')
+  mutate(direction_correct = (direction_pred == direction_true)) -> regression_results
 ```
 
-% of predictions that are correct
+Predicted vs. true density (largest sample size only):
 ```{r}
-regression_errors$n <- as.factor(regression_errors$n)
+PlotPredTrueDensity(regression_results, n = 1584)
 
-regression_errors %>%
-  filter(n == c(99, 792, 1584)) %>%
-  ggplot(mapping = aes(x = n, y = perc_correct,
-                       fill = ticks_included)) +
-  geom_bar(stat = 'identity',
-           position = position_dodge()) +
-  labs(y = 'density & direction',
-       fill = 'Ticks included') +
-  theme_minimal() +
-  theme(panel.grid.major.x = element_blank(),
-        panel.grid.minor.x = element_blank()) -> p1
-
-regression_errors %>%
-  filter(n == c(99, 792, 1584)) %>%
-  ggplot(mapping = aes(x = n, y = perc_density_correct,
-                       fill = ticks_included)) +
-  geom_bar(stat = 'identity',
-           position = position_dodge()) +
-  labs(y = 'density',
-       fill = 'Ticks included') +
-  theme_minimal() +
-  theme(panel.grid.major.x = element_blank(),
-        panel.grid.minor.x = element_blank()) -> p2
-
-regression_errors %>%
-  filter(n == c(99, 792, 1584)) %>%
-  ggplot(mapping = aes(x = n, y = perc_direction_correct,
-                       fill = ticks_included)) +
-  geom_bar(stat = 'identity',
-           position = position_dodge()) +
-  labs(y = 'direction',
-       fill = 'Ticks included') +
-  theme_minimal() +
-  theme(panel.grid.major.x = element_blank(),
-        panel.grid.minor.x = element_blank()) -> p3
-
-regression_errors %>%
-  filter(n == c(99, 792, 1584)) %>%
-  ggplot(mapping = aes(x = n, y = perc_correct_cat,
-                       fill = ticks_included)) +
-  geom_bar(stat = 'identity',
-           position = position_dodge()) +
-  labs(y = 'density within \n 10% of true density',
-       fill = 'Ticks included') +
-  theme_minimal() +
-  theme(panel.grid.major.x = element_blank(),
-        panel.grid.minor.x = element_blank()) -> p4
-
-p1 + p2 + p3 + p4 +
-  plot_layout(guides = 'collect') +
-  plot_annotation(tag_levels = 'A',
-                  title = '% correctly predicted') & 
-  theme(plot.tag = element_text(size = 8))
-
-ggsave('figures/fire_regression_perc_correct.pdf')
+#ggsave('figures/fire_LHS_pred_vs_true.pdf')
 ```
-
-RMSE, NRMSE & point prediction performance
+Predicted vs. true burn percentage (largest sample size only):
 ```{r}
-regression_errors %>%
-  ggplot(mapping = aes(x = n, y = RMSE,
-                       fill = ticks_included)) +
-  geom_bar(stat = 'identity',
-           position = position_dodge()) +
-  labs(fill = 'Ticks included') +
-  theme_minimal() +
-  theme(panel.grid.major.x = element_blank(),
-        panel.grid.minor.x = element_blank()) -> p1
-
-regression_errors %>%
-  ggplot(mapping = aes(x = n, y = NRMSE,
-                       fill = ticks_included)) +
-  geom_bar(stat = 'identity',
-           position = position_dodge()) +
-  labs(fill = 'Ticks included') +
-  theme_minimal() +
-  theme(panel.grid.major.x = element_blank(),
-        panel.grid.minor.x = element_blank()) -> p2
-
-regression_errors %>%
-  ggplot(mapping = aes(x = n, y = point_pred_performance,
-                       fill = ticks_included)) +
-  geom_bar(stat = 'identity',
-           position = position_dodge()) +
-  labs(fill = 'Ticks included',
-       y = 'point prediction performance') +
-  theme_minimal() +
-  theme(panel.grid.major.x = element_blank(),
-        panel.grid.minor.x = element_blank()) -> p3
-
-p1 + p2 + p3 +
-  plot_layout(guides = 'collect') +
-  plot_annotation(tag_levels = 'A') & 
-  theme(plot.tag = element_text(size = 8))
-
-ggsave('figures/fire_regression_RMSE.pdf')
+PlotPredTrueBurn(regression_results, n = 1584)
 ```
-
-Coverage
+% correctly predicted parameters (density & directions):
 ```{r}
-regression_errors %>%
-  ggplot(mapping = aes(x = n, y = coverage,
-                       colour = ticks_included)) +
-  lims(y = c(0.94, 1.0)) +
-  geom_hline(yintercept = 0.95,
-             colour = 'light green') +
-  geom_beeswarm() +
-  labs(x = 'sample size',
-       colour = 'Ticks included',
-       y = 'coverage (95% \n prediction interval)') +
-  theme_minimal()
+PlotPercCorrectParams(regression_errors, n_plot = c(99, 792, 1584))
+
+#ggsave('figures/fire_LHS_perc_correct.pdf')
+```
+RMSE, NRMSE and point prediction performance for density parameter:
+```{r}
+PlotRMSEParams(regression_errors, n_plot = c(99, 792, 1584))
+
+#ggsave('figures/fire_LHS_RMSE.pdf')
+```
+RMSE for burn percentage:
+```{r}
+PlotRMSEOut(regression_errors, n_plot = c(99, 792, 1584))
+```
+Coverage:
+```{r}
+PlotCoverageDensity(regression_errors, n_plot = n)
 
 ggsave('figures/fire_regression_coverage.pdf')
 ```
+
+
+
+
+
 
 Fitted regression lines (smallest and largest sample size):
 Linear regression for density
