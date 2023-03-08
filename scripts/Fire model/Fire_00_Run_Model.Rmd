@@ -14,6 +14,7 @@ Import Python modules:
 import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
+import math
 sns.set_style('white')
 sns.set_context('talk')
 
@@ -43,6 +44,8 @@ directions = [4, 8]
 CVs = pd.DataFrame(columns = ['runs', 'CV'])
 
 for k in runs:
+  # set up data frame to store results
+  perc_burn_df = pd.DataFrame(columns = ['perc_burn'])
   for i in directions:
     # set number of directions
     direction = str(i)
@@ -51,9 +54,7 @@ for k in runs:
       # set density
       density = str(j)
       netlogo.command(''.join(['set density ', density]))
-      # set up data frame to store results
-      perc_burn_df = pd.DataFrame(columns = ['perc_burn'])
-      for x in range(1, k):
+      for x in range(0, k):
         # set up
         netlogo.command('setup')
         # execute for 10,000 ticks or until the model is done
@@ -67,9 +68,18 @@ for k in runs:
         perc_burn_df = perc_burn_df.append({'perc_burn': perc_burn}, ignore_index = True)
       
   # calculate CV
+  # if standard deviation = 0, set CV to 0
   CV_new = perc_burn_df.mean() / perc_burn_df.std() * 100
-  CVs = CVs.append({'runs': runs[k]}, {'CV' : CV_new)
+  if math.isinf(CV_new):
+    CV_new = 0
+  else:
+    CV_new = int(CV_new)
+  CVs = CVs.append({'runs': k, 'CV' : CV_new}, ignore_index = True)
+  
+# inspect coefficients of variation
+CVs
 ```
+So 10 runs is sufficient.
 
 Set up the model and run 10 times for each density, record the percentage of trees burned:
 ```{python}
