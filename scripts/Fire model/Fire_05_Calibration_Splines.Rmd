@@ -237,14 +237,14 @@ gam_errors <- rbind(gam_errors_noticks, gam_errors_ticks)
 ## Errors
 Fix results and errors data frames:
 ```{r}
-gam_results$n <- as.factor(gam_results$n)
-gam_errors$n <- as.factor(gam_errors$n)
-gam_results$direction_true <-
-  as.factor(gam_results$direction_true)
-gam_results$direction_pred <-
-  as.factor(gam_results$direction_pred)
-gam_results %>%
-  mutate(direction_correct = (direction_pred == direction_true)) -> gam_results
+gam_results <- gam_results %>%
+  mutate(n = factor(n),
+         direction_true = factor(direction_true),
+         direction_pred = factor(direction_pred),
+         direction_correct = (direction_pred == direction_true))
+
+gam_errors <- gam_errors %>%
+  mutate(n = factor(n))
 ```
 
 Predicted vs. true density (largest sample size only):

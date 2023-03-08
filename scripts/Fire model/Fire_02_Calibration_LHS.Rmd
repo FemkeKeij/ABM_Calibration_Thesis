@@ -235,14 +235,14 @@ lhs_errors <- rbind(lhs_errors_noticks, lhs_errors_ticks)
 # Plots
 Fix results and errors data frames:
 ```{r}
-lhs_results$n <- as.factor(lhs_results$n)
-lhs_errors$n <- as.factor(lhs_errors$n)
-lhs_results$direction_true <-
-  as.factor(lhs_results$direction_true)
-lhs_results$direction_pred <-
-  as.factor(lhs_results$direction_pred)
-lhs_results %>%
-  mutate(direction_correct = (direction_pred == direction_true)) -> lhs_results
+lhs_results <- lhs_results %>%
+  mutate(n = factor(n),
+         direction_true = factor(direction_true),
+         direction_pred = factor(direction_pred),
+         direction_correct = (direction_pred == direction_true))
+
+lhs_errors <- lhs_errors %>%
+  mutate(n = factor(n))
 ```
 
 Predicted vs. true density (largest sample size only):

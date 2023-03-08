@@ -210,14 +210,14 @@ regression_errors <- rbind(regression_errors_noticks, regression_errors_ticks)
 ## Errors
 Fix results and errors data frames:
 ```{r}
-regression_results$n <- as.factor(regression_results$n)
-regression_errors$n <- as.factor(regression_errors$n)
-regression_results$direction_true <-
-  as.factor(regression_results$direction_true)
-regression_results$direction_pred <-
-  as.factor(regression_results$direction_pred)
-regression_results %>%
-  mutate(direction_correct = (direction_pred == direction_true)) -> regression_results
+regression_results <- regression_results %>%
+  mutate(n = factor(n),
+         direction_true = factor(direction_true),
+         direction_pred = factor(direction_pred),
+         direction_correct = (direction_pred == direction_true))
+
+regression_errors <- regression_errors %>%
+  mutate(n = factor(n))
 ```
 
 Predicted vs. true density (largest sample size only):

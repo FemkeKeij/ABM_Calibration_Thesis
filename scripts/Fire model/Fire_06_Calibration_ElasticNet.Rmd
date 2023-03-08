@@ -242,14 +242,14 @@ elastic_errors <- rbind(elastic_errors_noticks, elastic_errors_ticks)
 ## Errors
 Fix results and errors data frames:
 ```{r}
-elastic_results$n <- as.factor(elastic_results$n)
-elastic_errors$n <- as.factor(elastic_errors$n)
-elastic_results$direction_true <-
-  as.factor(elastic_results$direction_true)
-elastic_results$direction_pred <-
-  as.factor(elastic_results$direction_pred)
-elastic_results %>%
-  mutate(direction_correct = (direction_pred == direction_true)) -> elastic_results
+elastic_results <- elastic_results %>%
+  mutate(n = factor(n),
+         direction_true = factor(direction_true),
+         direction_pred = factor(direction_pred),
+         direction_correct = (direction_pred == direction_true))
+
+elastic_errors <- elastic_errors %>%
+  mutate(n = factor(n))
 ```
 
 Predicted vs. true density (largest sample size only):

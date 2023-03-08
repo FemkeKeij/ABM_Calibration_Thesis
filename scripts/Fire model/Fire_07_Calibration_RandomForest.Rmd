@@ -219,14 +219,14 @@ forest_errors <- rbind(forest_errors_noticks, forest_errors_ticks)
 ## Errors
 Fix results and errors data frames:
 ```{r}
-forest_results$n <- as.factor(forest_results$n)
-forest_errors$n <- as.factor(forest_errors$n)
-forest_results$direction_true <-
-  as.factor(forest_results$direction_true)
-forest_results$direction_pred <-
-  as.factor(forest_results$direction_pred)
-forest_results %>%
-  mutate(direction_correct = (direction_pred == direction_true)) -> forest_results
+forest_results <- forest_results %>%
+  mutate(n = factor(n),
+         direction_true = factor(direction_true),
+         direction_pred = factor(direction_pred),
+         direction_correct = (direction_pred == direction_true))
+
+forest_errors <- forest_errors %>%
+  mutate(n = factor(n))
 ```
 
 Predicted vs. true density (largest sample size only):
