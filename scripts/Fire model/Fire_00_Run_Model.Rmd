@@ -35,6 +35,42 @@ netlogo.load_model(r"C:\Users\Femke Keij\OneDrive\Thesis\R projects\LU thesis lo
 # open model
 ```
 
+To determine how often the model should be run, I look at the coefficient of variation: $standard deviation / mean * 100$. At the number of repetitions where this remains approximately the same, we can assume convergence [LU40]. This is only true for linear relationships, which we don't have here, but it will give an indication of how often to run the model:
+```{python}
+runs = [5, 10, 20, 30]
+densities = [5, 10, 25, 50, 75, 100]
+directions = [4, 8]
+CVs = pd.DataFrame(columns = ['runs', 'CV'])
+
+for k in runs:
+  for i in directions:
+    # set number of directions
+    direction = str(i)
+    netlogo.command(''.join(['set directions ', direction]))
+    for j in densities:
+      # set density
+      density = str(j)
+      netlogo.command(''.join(['set density ', density]))
+      # set up data frame to store results
+      perc_burn_df = pd.DataFrame(columns = ['perc_burn'])
+      for x in range(1, k):
+        # set up
+        netlogo.command('setup')
+        # execute for 10,000 ticks or until the model is done
+        netlogo.command('repeat 10000 [go]')
+        # record number of burned trees and number of initial trees
+        initial = netlogo.report('initial-trees')
+        burned = netlogo.report('burned-trees')
+        # calculate % burned
+        perc_burn = burned / initial * 100
+        # store
+        perc_burn_df = perc_burn_df.append({'perc_burn': perc_burn}, ignore_index = True)
+      
+  # calculate CV
+  CV_new = perc_burn_df.mean() / perc_burn_df.std() * 100
+  CVs = CVs.append({'runs': runs[k]}, {'CV' : CV_new)
+```
+
 Set up the model and run 10 times for each density, record the percentage of trees burned:
 ```{python}
 densities = list(range(1,100))

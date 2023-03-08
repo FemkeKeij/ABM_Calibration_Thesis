@@ -32,6 +32,11 @@ library(caret)
 library(glmnet)
 ```
 
+Source files for error computation and plotting functions:
+```{r}
+source('scripts/Fire model/Fire_ErrorFunctions.R')
+```
+
 Read in the data:
 ```{r}
 # complete output data
@@ -212,62 +217,16 @@ elastic_fits_noticks <- elastic_results_noticks[[3]]
 elastic_results_noticks <- elastic_results_noticks[[1]]
 ```
 
-Function to calculate the error measures for the regression lines.
-The following function summarises the following:
-- % of cases in which both direction and density are estimated correctly
-- % of cases in which density is estimated correctly
-- % of cases in which direction is estimated correctly
-- % of cases in which the density is estimated to be within 10% of the true density
-- RMSE of the estimated density
-- NRMSE of the estimated density
-- point prediction performance of the estimated density
-```{r}
-ElasticNetErrors <- function(regression_results, ticks = FALSE,
-                             density_means){
-  
-  merge(regression_results, as_tibble(cbind(n, density_means)),
-        by = c('n')) %>%
-    group_by(n) %>%
-    summarise(perc_correct = sum(direction_true ==
-                                   direction_pred &
-                                   density_true == round(density_pred))
-                / nrow(fire_test),
-              perc_density_correct = sum(density_true ==
-                                         round(density_pred)) /
-                nrow(fire_test),
-              perc_direction_correct = sum(direction_true ==
-                                           direction_pred) /
-                nrow(fire_test),
-              perc_correct_cat = sum(density_pred >=
-                                       density_true - 5 &
-                                       density_pred <=
-                                       density_true + 5) /
-                nrow(fire_test),
-              RMSE = sqrt(sum((density_pred - density_true)^2))
-                /nrow(fire_test),
-              NRMSE = (sqrt(sum((density_pred -
-                                   density_true)^2))
-                     / nrow(fire_test)) / sd(density_true),
-              point_pred_performance = 1 - 
-                sum(sqrt((density_pred - density_true)^2)) /
-                sum(sqrt((density_true - density_means)^2))) ->
-    regression_errors
-  
-  regression_errors$ticks_included <- 
-    if(ticks == TRUE){'yes'} else{'no'}
-
-  return(regression_errors)
-}
-```
-
 ```{r}
 # run error calculations
-elastic_errors_ticks <- ElasticNetErrors(elastic_results_ticks,
-                                            ticks = TRUE,
-                                            density_means_ticks)
-elastic_errors_noticks <- ElasticNetErrors(elastic_results_noticks,
-                                            ticks = FALSE,
-                                            density_means_noticks)
+elastic_errors_ticks <- ComputeErrors(elastic_results_ticks,
+                                         ticks = TRUE,
+                                         density_means_ticks,
+                                         pred_int_included = FALSE)
+elastic_errors_noticks <- ComputeErrors(elastic_results_noticks,
+                                           ticks = FALSE,
+                                           density_means_noticks,
+                                           pred_int_included = FALSE)
 ```
 
 Merge results
@@ -279,6 +238,55 @@ elastic_errors <- rbind(elastic_errors_noticks, elastic_errors_ticks)
 ``` 
 
 # Plots
+# Plots
+## Errors
+Fix results and errors data frames:
+```{r}
+elastic_results$n <- as.factor(elastic_results$n)
+elastic_errors$n <- as.factor(elastic_errors$n)
+elastic_results$direction_true <-
+  as.factor(elastic_results$direction_true)
+elastic_results$direction_pred <-
+  as.factor(elastic_results$direction_pred)
+elastic_results %>%
+  mutate(direction_correct = (direction_pred == direction_true)) -> elastic_results
+```
+
+Predicted vs. true density (largest sample size only):
+```{r}
+PlotPredTrueDensity(elastic_results, n = 1584)
+
+ggsave('figures/fire_elasticnet_predtrue_density.pdf')
+```
+Predicted vs. true burn percentage (largest sample size only):
+```{r}
+PlotPredTrueBurn(elastic_results, n = 1584)
+
+ggsave('figures/fire_elasticnet_predtrue_burn.pdf')
+```
+% correctly predicted parameters (density & directions):
+```{r}
+PlotPercCorrectParams(elastic_errors, n_plot = c(99, 792, 1584))
+
+ggsave('figures/fire_elasticnet_perc_correct.pdf')
+```
+RMSE, NRMSE and point prediction performance for density parameter:
+```{r}
+PlotRMSEParams(elastic_errors, n_plot = c(99, 792, 1584))
+
+ggsave('figures/fire_elasticnet_RMSE_density.pdf')
+```
+RMSE for burn percentage:
+```{r}
+PlotRMSEOut(elastic_errors, n_plot = c(99, 792, 1584))
+
+ggsave('figures/fire_elasticnet_RMSE_burn.pdf')
+```
+
+## Model fit
+
+
+
 Predicted vs. true density (largest sample size only):
 ```{r}
 elastic_results$n <- as.factor(elastic_results$n)

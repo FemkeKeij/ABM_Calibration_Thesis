@@ -30,8 +30,7 @@ library(ggbeeswarm)
 
 Source files for error computation and plotting functions:
 ```{r}
-source('scripts/Fire model/Fire_ErrorPlots.R')
-source('scripts/Fire model/Fire_ErrorCalc.R')
+source('scripts/Fire model/Fire_ErrorFunctions.R')
 ```
 
 Read in the data:
@@ -188,7 +187,7 @@ regression_results_noticks <- regression_results_noticks[[1]]
 ```
 
 ```{r}
-# run error calcualtions
+# run error calculations
 regression_errors_ticks <- ComputeErrors(regression_results_ticks,
                                          ticks = TRUE,
                                          density_means_ticks,
@@ -208,6 +207,7 @@ regression_errors <- rbind(regression_errors_noticks, regression_errors_ticks)
 ``` 
 
 # Plots
+## Errors
 Fix results and errors data frames:
 ```{r}
 regression_results$n <- as.factor(regression_results$n)
@@ -224,27 +224,31 @@ Predicted vs. true density (largest sample size only):
 ```{r}
 PlotPredTrueDensity(regression_results, n = 1584)
 
-#ggsave('figures/fire_LHS_pred_vs_true.pdf')
+ggsave('figures/fire_regression_predtrue_density.pdf')
 ```
 Predicted vs. true burn percentage (largest sample size only):
 ```{r}
 PlotPredTrueBurn(regression_results, n = 1584)
+
+ggsave('figures/fire_regression_predtrue_burn.pdf')
 ```
 % correctly predicted parameters (density & directions):
 ```{r}
 PlotPercCorrectParams(regression_errors, n_plot = c(99, 792, 1584))
 
-#ggsave('figures/fire_LHS_perc_correct.pdf')
+ggsave('figures/fire_regression_perc_correct.pdf')
 ```
 RMSE, NRMSE and point prediction performance for density parameter:
 ```{r}
 PlotRMSEParams(regression_errors, n_plot = c(99, 792, 1584))
 
-#ggsave('figures/fire_LHS_RMSE.pdf')
+ggsave('figures/fire_regression_RMSE_density.pdf')
 ```
 RMSE for burn percentage:
 ```{r}
 PlotRMSEOut(regression_errors, n_plot = c(99, 792, 1584))
+
+ggsave('figures/fire_regression_RMSE_burn.pdf')
 ```
 Coverage:
 ```{r}
@@ -253,7 +257,7 @@ PlotCoverageDensity(regression_errors, n_plot = n)
 ggsave('figures/fire_regression_coverage.pdf')
 ```
 
-
+## Model fit
 
 
 
