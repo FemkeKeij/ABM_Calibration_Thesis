@@ -258,10 +258,6 @@ ggsave('figures/fire_regression_coverage.pdf')
 ```
 
 ## Model fit
-
-
-
-
 Fitted regression lines (smallest and largest sample size):
 Linear regression for density
 ```{r}
@@ -308,22 +304,35 @@ p1 + p2 + p3 + p4 +
 ggsave('figures/fire_regression_fit.pdf')
 ```
 
-Logistic regression for directions
+Logistic regression for directions (only largest training sample size)
 ```{r}
-library(broom)
+# library(broom)
 
 fit_glm <- glm(data = fire_train,
-               formula = 'directions ~ burn_percentage + density + ticks',
+               formula = 'directions ~ burn_percentage + density',
                family = binomial(link = 'logit'))
 plot_df <- augment(fit_glm, type.predict = 'response')
 
 plot_df %>%
-  mutate(four = ifelse(directions == 4, density, NA),
-         eight = ifelse(directions == 8, density, NA)) %>%
-  ggplot(aes(x = density)) +
-  geom_line(aes(x = density, y = .fitted,
-                colour = burn_percentage)) +
-  labs(x = "density", y = "directions") +
-  geom_histogram(aes(x = four, y = stat(count)/1000), bins = 30, na.rm = TRUE) +
-  geom_histogram(aes(x = eight, y = -1*stat(count/1000)), bins = 30, na.rm = TRUE, position = position_nudge(y = 1))
+  ggplot(mapping = aes(x = density, y = .fitted,
+                       colour = directions,
+                       group = directions)) +
+  geom_point(size = 0.5) +
+  labs(x = 'tree density',
+       y = 'probability number of directions is 8') +
+  geom_hline(yintercept = 0.5,
+             linetype = 'dashed',
+             colour = 'darkgreen') +
+  theme_minimal() +
+  theme(panel.grid.minor = element_blank()) +
+  annotate(geom = 'text',
+           x = 17, y = 0.25,
+           label = 'directions \n classified \n as 4',
+           size = 3) +
+  annotate(geom = 'text',
+           x = 83, y = 0.75,
+           label = 'directions \n classified \n as 8',
+           size = 3)
+
+ggsave('figures/fire_logistic_fit.pdf')
 ```

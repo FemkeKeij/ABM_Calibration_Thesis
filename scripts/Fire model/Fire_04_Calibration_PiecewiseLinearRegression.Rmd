@@ -278,28 +278,57 @@ ggsave('figures/fire_piecewise_coverage.pdf')
 ```
 
 ## Model fit
-
-
-
-Fitted regression lines (smallest and largest sample size):
-Linear regression for density
+Piecewise linear regression for density (only for largest training sample size)
 ```{r}
+fit_ticks <- lm(data = fire_train,
+          formula = density ~ directions + ticks + burn_percentage)
+segmented_fit_ticks <- segmented(fit_ticks,
+                                 seg.Z = ~ burn_percentage, npsi = 2)
 
-dat <- data.frame(burn_percentage = fire_train$burn_percentage,
-                  density = fire_train$density,
-                  fit = broken.line(segmented_fit)$fit,
-                  directions = fire_train$directions)
-row.names(dat) <- NULL
+fit_noticks <- lm(data = fire_train,
+          formula = density ~ directions + burn_percentage)
+segmented_fit_noticks <- segmented(fit_noticks,
+                                   seg.Z = ~ burn_percentage, npsi = 2)
 
-dat %>%
-    ggplot(mapping = aes(x = burn_percentage, y = density,
-                         colour = directions)) +
-    geom_point() +
-    geom_line(aes(x = burn_percentage, y = fit,
-                  linetype = directions)) +
-    labs(x = '% burned trees at last tick',
-         y = 'tree density (%)') +
-    theme_minimal() +
-    coord_flip()
+dat_ticks <- data.frame(burn_percentage = fire_train$burn_percentage,
+                        density = fire_train$density,
+                        fit = broken.line(segmented_fit_ticks)$fit,
+                        directions = fire_train$directions)
+dat_noticks <- data.frame(burn_percentage = fire_train$burn_percentage,
+                          density = fire_train$density,
+                          fit = broken.line(segmented_fit_noticks)$fit,
+                          directions = fire_train$directions)
+row.names(dat_ticks) <- NULL
+row.names(dat_noticks) <- NULL
+
+p1 <- ggplot(data = fire_train, aes(x = burn_percentage, y = density,
+                              colour = directions)) +
+  geom_point() +
+  geom_line(data = dat_noticks, aes(x = burn_percentage, y = fit,
+                                    group = directions)) +
+  theme_minimal() +
+  labs(x = '% burned trees at last tick',
+       y = 'tree density (%)') +
+  coord_flip()
+
+p2 <- ggplot(data = fire_train, aes(x = burn_percentage, y = density,
+                              colour = directions)) +
+  geom_point() +
+  geom_line(data = dat_ticks, aes(x = burn_percentage, y = fit,
+                                  group = directions)) +
+  theme_minimal() +
+  labs(x = '% burned trees at last tick',
+       y = 'tree density (%)') +
+  coord_flip()
+
+patch <- p1 + p2 +
+    plot_layout(guides = 'collect') +
+    plot_annotation(tag_levels = 'A') & 
+    theme(plot.tag = element_text(size = 8)) &
+    ylab(NULL)
+  
+wrap_elements(panel = patch) +
+  labs(tag = 'tree density(%)') +
+  theme(plot.tag = element_text(size = rel(1)),
+        plot.tag.position = 'bottom')
 ```
-
