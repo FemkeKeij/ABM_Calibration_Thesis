@@ -194,7 +194,6 @@ forest_fits_noticks <- forest_results_noticks[[3]]
 forest_results_noticks <- forest_results_noticks[[1]]
 ```
 
-
 ```{r}
 # run error calculations
 forest_errors_ticks <- ComputeErrors(forest_results_ticks,
@@ -211,11 +210,18 @@ Merge results
 ```{r}
 forest_results <- rbind(forest_results_noticks,
                             forest_results_ticks)
+write_csv(forest_results, 'data/processed/fire_forest_results.csv')
 
 forest_errors <- rbind(forest_errors_noticks, forest_errors_ticks)
+write_csv(forest_errors, 'data/processed/fire_forest_errors.csv')
 ``` 
 
 # Plots
+```{r}
+# forest_results <- read_csv('data/processed/fire_forest_results.csv')
+# forest_errors <- read_csv('data/processed/fire_forest_errors.csv')
+```
+
 ## Errors
 Fix results and errors data frames:
 ```{r}
@@ -261,4 +267,7 @@ ggsave('figures/fire_randomforest_RMSE_burn.pdf')
 ```
 
 ## Model fit
+For density
+
+For directions
 
