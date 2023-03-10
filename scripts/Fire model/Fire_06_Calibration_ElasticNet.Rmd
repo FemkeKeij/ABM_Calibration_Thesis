@@ -233,12 +233,18 @@ Merge results
 ```{r}
 elastic_results <- rbind(elastic_results_noticks,
                             elastic_results_ticks)
+write_csv(elastic_results, 'data/processed/fire_elasticnet_results.csv')
 
 elastic_errors <- rbind(elastic_errors_noticks, elastic_errors_ticks)
+write_csv(elastic_errors, 'data/processed/fire_elasticnet_errors.csv')
 ``` 
 
 # Plots
-# Plots
+```{r}
+# elastic_results <- read_csv('data/processed/fire_elasticnet_results.csv')
+# elastic_errors <- read_csv('data/processed/fire_elasticnet_errors.csv')
+```
+
 ## Errors
 Fix results and errors data frames:
 ```{r}
