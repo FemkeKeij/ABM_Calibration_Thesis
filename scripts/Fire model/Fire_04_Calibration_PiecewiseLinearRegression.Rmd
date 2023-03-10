@@ -312,13 +312,18 @@ row.names(dat_ticks) <- NULL
 row.names(dat_noticks) <- NULL
 
 p1 <- ggplot(data = fire_train, aes(x = burn_percentage, y = density,
-                              colour = directions)) +
+                              colour = directions,
+                              group = directions)) +
   geom_point() +
   geom_line(data = dat_noticks, aes(x = burn_percentage, y = fit,
-                                    group = directions)) +
+                                    group = directions,
+                                    colour = directions)) +
   theme_minimal() +
+  theme(panel.grid.minor = element_blank(),
+        panel.border = element_rect(colour = 'lightgrey', fill = NA)) +
   labs(x = '% burned trees at last tick',
        y = 'tree density (%)') +
+  ggtitle('no ticks') +
   coord_flip()
 
 p2 <- ggplot(data = fire_train, aes(x = burn_percentage, y = density,
@@ -327,8 +332,11 @@ p2 <- ggplot(data = fire_train, aes(x = burn_percentage, y = density,
   geom_line(data = dat_ticks, aes(x = burn_percentage, y = fit,
                                   group = directions)) +
   theme_minimal() +
+  theme(panel.grid.minor = element_blank(),
+        panel.border = element_rect(colour = 'lightgrey', fill = NA)) +
   labs(x = '% burned trees at last tick',
        y = 'tree density (%)') +
+  ggtitle('ticks') +
   coord_flip()
 
 patch <- p1 + p2 +
