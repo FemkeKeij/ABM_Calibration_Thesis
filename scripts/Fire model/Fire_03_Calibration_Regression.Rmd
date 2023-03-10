@@ -26,6 +26,9 @@ library(tidyverse)
 library(directlabels)
 library(patchwork)
 library(ggbeeswarm)
+
+# for plotting the logistic regression
+library(broom)
 ```
 
 Source files for error computation and plotting functions:
@@ -202,11 +205,21 @@ Merge results
 ```{r}
 regression_results <- rbind(regression_results_noticks,
                             regression_results_ticks)
+write_csv(regression_results,
+          'data/processed/fire_regression_results.csv')
 
 regression_errors <- rbind(regression_errors_noticks, regression_errors_ticks)
+write_csv(regression_errors,
+          'data/processed/fire_regression_errors.csv')
 ``` 
 
 # Plots
+```{r}
+# regression_results <- read_csv('data/processed/fire_regression_results.csv')
+
+# regression_errors <- read_csv('data/processed/fire_regression_errors.csv')
+```
+
 ## Errors
 Fix results and errors data frames:
 ```{r}
@@ -306,25 +319,24 @@ ggsave('figures/fire_regression_fit.pdf')
 
 Logistic regression for directions (only largest training sample size)
 ```{r}
-# library(broom)
-
-fit_glm <- glm(data = fire_train,
-               formula = 'directions ~ burn_percentage + density',
+fit_glm_ticks <- glm(data = fire_train,
+               formula = 'directions ~ burn_percentage + density + ticks',
                family = binomial(link = 'logit'))
-plot_df <- augment(fit_glm, type.predict = 'response')
+plot_df_ticks <- augment(fit_glm_ticks, type.predict = 'response')
 
-plot_df %>%
+p1 <- plot_df_ticks %>%
   ggplot(mapping = aes(x = density, y = .fitted,
-                       colour = directions,
-                       group = directions)) +
+                       colour = directions)) +
   geom_point(size = 0.5) +
   labs(x = 'tree density',
-       y = 'probability number of directions is 8') +
+       y = 'probability number of directions is 8',
+       colour = 'true number \n of directions') +
   geom_hline(yintercept = 0.5,
              linetype = 'dashed',
              colour = 'darkgreen') +
   theme_minimal() +
-  theme(panel.grid.minor = element_blank()) +
+  theme(panel.grid.minor = element_blank(),
+        panel.border = element_rect(colour = 'lightgrey', fill = NA)) +
   annotate(geom = 'text',
            x = 17, y = 0.25,
            label = 'directions \n classified \n as 4',
@@ -332,7 +344,49 @@ plot_df %>%
   annotate(geom = 'text',
            x = 83, y = 0.75,
            label = 'directions \n classified \n as 8',
-           size = 3)
+           size = 3) +
+  ylim(c(0, 1)) +
+  ggtitle('ticks')
+
+fit_glm_noticks <- glm(data = fire_train,
+               formula = 'directions ~ burn_percentage + density',
+               family = binomial(link = 'logit'))
+plot_df_noticks <- augment(fit_glm_noticks, type.predict = 'response')
+
+p2 <- plot_df_noticks %>%
+  ggplot(mapping = aes(x = density, y = .fitted,
+                       colour = directions)) +
+  geom_point(size = 0.5) +
+  labs(x = 'tree density',
+       y = 'probability number of directions is 8',
+       colour = 'true number \n of directions') +
+  geom_hline(yintercept = 0.5,
+             linetype = 'dashed',
+             colour = 'darkgreen') +
+  theme_minimal() +
+  theme(panel.grid.minor = element_blank(),
+        panel.border = element_rect(colour = 'lightgrey', fill = NA)) +
+  annotate(geom = 'text',
+           x = 17, y = 0.25,
+           label = 'directions \n classified \n as 4',
+           size = 3) +
+  annotate(geom = 'text',
+           x = 83, y = 0.75,
+           label = 'directions \n classified \n as 8',
+           size = 3) +
+  ylim(c(0, 1)) +
+  ggtitle('no ticks')
+
+patch <- p1 + p2 +
+    plot_layout(guides = 'collect') +
+    plot_annotation(tag_levels = 'A') & 
+    theme(plot.tag = element_text(size = 8)) &
+    xlab(NULL)
+  
+wrap_elements(panel = patch) +
+  labs(tag = 'tree density (%)') +
+  theme(plot.tag = element_text(size = rel(1)),
+        plot.tag.position = 'bottom')
 
 ggsave('figures/fire_logistic_fit.pdf')
 ```
