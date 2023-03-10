@@ -228,12 +228,18 @@ Merge results
 ```{r}
 gam_results <- rbind(gam_results_noticks,
                             gam_results_ticks)
+write_csv(gam_results, 'data/processed/fire_gam_results.csv')
 
 gam_errors <- rbind(gam_errors_noticks, gam_errors_ticks)
+write_csv(gam_errors, 'data/processed/fire_gam_errors.csv')
 ``` 
 
 # Plots
-# Plots
+```{r}
+# gam_results <- read_csv('data/processed/fire_gam_results.csv')
+# gam_errors <- read_csv('data/processed/fire_gam_errors.csv')
+```
+
 ## Errors
 Fix results and errors data frames:
 ```{r}
@@ -279,5 +285,141 @@ ggsave('figures/fire_gam_RMSE_burn.pdf')
 ```
 
 ## Model fit
+```{r}
+library(voxel)
+```
+For density
+```{r}
+fit_gam_density_noticks <- gam(formula = density ~
+                         s(burn_percentage, bs = 'cr', k = 68) +
+                         directions,
+                       data = fire_train)
 
+fit_gam_density_ticks <- gam(formula = density ~
+                         s(burn_percentage, bs = 'cr', k = 68) +
+                         directions + ticks,
+                       data = fire_train)
 
+p1 <- plotGAM(fit_gam_density_noticks,
+              smooth.cov = 'burn_percentage',
+              groupCovs = 'directions') +
+  labs(y = NULL,
+       x = 'cubic smoothed spline for burn percentage',
+       title = NULL) +
+  geom_point(data = fire_train, mapping = aes(x = burn_percentage,
+                                              y = density,
+                                              colour = directions),
+             size = 1, alpha = 0.2) +
+  theme_minimal() +
+  theme(panel.grid.minor = element_blank(),
+        panel.border = element_rect(colour = 'lightgrey', fill = NA)) +
+  coord_flip() +
+  ggtitle('no ticks')
+
+p2 <- plotGAM(fit_gam_density_ticks,
+              smooth.cov = 'burn_percentage',
+              groupCovs = 'directions') +
+  labs(y = NULL,
+       x = 'cubic smoothing spline for burn percentage',
+       title = NULL) +
+  geom_point(data = fire_train, mapping = aes(x = burn_percentage,
+                                              y = density,
+                                              colour = directions),
+             size = 1, alpha = 0.2) +
+  theme_minimal() +
+  theme(panel.grid.minor = element_blank(),
+        panel.border = element_rect(colour = 'lightgrey', fill = NA)) +
+  coord_flip() +
+  ggtitle('ticks')
+
+patch <- p1 + p2 +
+    plot_layout(guides = 'collect') +
+    plot_annotation(tag_levels = 'A') & 
+    theme(plot.tag = element_text(size = 8))
+  
+wrap_elements(panel = patch) +
+  labs(tag = 'tree density (%)') +
+  theme(plot.tag = element_text(size = rel(1)),
+        plot.tag.position = 'bottom')
+
+ggsave('figures/fire_gam_density_fit.pdf')
+```
+
+For directions
+NOTE THAT THE ESTIMATION HERE IS ABOUT THE TRAINING DATA, NOT THE TEST DATA. THIS IS TO SHOW THE FIT, NOT THE PREDICTIVE POWER.
+```{r}
+fit_gam_directions_noticks <- gam(formula = directions ~ density +
+                                    s(burn_percentage, bs = 'cr',
+                                    k = 68),
+                                data = fire_train, 
+                                family = binomial(link = 'logit'))
+
+pred_gam_directions_noticks <- predict.gam(fit_gam_directions_noticks,
+                                           type = 'response')
+for(i in 1:length(pred_gam_directions_noticks)){
+  if(pred_gam_directions_noticks[i] < 0.5){
+    pred_gam_directions_noticks[i] <- 4
+  } else{
+    pred_gam_directions_noticks[i] <- 8
+  }
+}
+
+dat_noticks <- data.frame(density = fire_train$density,
+                  burn_percentage = fire_train$burn_percentage,
+                  directions_true = fire_train$directions)
+
+dat_noticks <- dat_noticks %>%
+  mutate(directions_correct = (directions_true == pred_gam_directions_noticks))
+
+p1 <- dat_noticks %>%
+  ggplot(mapping = aes(x = density, y = burn_percentage,
+                       colour = directions_correct)) +
+  geom_point() +
+  labs(colour = 'directions estimated \n correctly',
+       x = NULL,
+       y = 'burn percentage')
+
+fit_gam_directions_ticks <- gam(formula = directions ~ density +
+                                    s(burn_percentage, bs = 'cr',
+                                    k = 68) + ticks,
+                                data = fire_train, 
+                                family = binomial(link = 'logit'))
+
+pred_gam_directions_ticks <- predict.gam(fit_gam_directions_ticks,
+                                           type = 'response')
+for(i in 1:length(pred_gam_directions_ticks)){
+  if(pred_gam_directions_ticks[i] < 0.5){
+    pred_gam_directions_ticks[i] <- 4
+  } else{
+    pred_gam_directions_ticks[i] <- 8
+  }
+}
+
+dat_ticks <- data.frame(density = fire_train$density,
+                  burn_percentage = fire_train$burn_percentage,
+                  directions_true = fire_train$directions)
+
+dat_ticks <- dat_ticks %>%
+  mutate(directions_correct = (directions_true == pred_gam_directions_noticks))
+
+p2 <- dat_ticks %>%
+  ggplot(mapping = aes(x = density, y = burn_percentage,
+                       colour = directions_correct)) +
+  geom_point() +
+  labs(colour = 'directions estimated \n correctly',
+       x = NULL,
+       y = 'burn percentage')
+
+patch <- p1 + p2 +
+    plot_layout(guides = 'collect') +
+    plot_annotation(tag_levels = 'A') & 
+    theme(plot.tag = element_text(size = 8)) &
+    xlab(NULL)
+  
+wrap_elements(panel = patch) +
+  labs(tag = 'tree density (%)') +
+  theme(plot.tag = element_text(size = rel(1)),
+        plot.tag.position = 'bottom')
+
+ggsave('figures/fire_gam_directions_fit.pdf')
+```
