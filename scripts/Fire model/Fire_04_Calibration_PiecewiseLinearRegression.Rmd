@@ -222,11 +222,21 @@ Merge results
 ```{r}
 regression_results <- rbind(regression_results_noticks,
                             regression_results_ticks)
+write_csv(regression_results,
+          'data/processed/fire_piecewise_results.csv')
 
 regression_errors <- rbind(regression_errors_noticks, regression_errors_ticks)
+write_csv(regression_errors,
+          'data/processed/fire_piecewise_errors.csv')
 ``` 
 
 # Plots
+```{r}
+# regression_results <- read_csv('data/processed/fire_piecewise_results.csv')
+
+# regression_errors <- read_csv('data/processed/fire_piecewise_errors.csv')
+```
+
 ## Errors
 Fix results and errors data frames:
 ```{r}
