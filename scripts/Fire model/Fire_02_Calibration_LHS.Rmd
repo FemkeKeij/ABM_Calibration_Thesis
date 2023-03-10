@@ -226,13 +226,22 @@ lhs_errors_ticks <- ComputeErrors(lhs_results_ticks,
 Merge results
 ```{r}
 lhs_results <- rbind(lhs_results_noticks, lhs_results_ticks)
+
+write_csv(lhs_results, 'data/processed/fire_LHS_results.csv')
 ``` 
 
 ```{r}
 lhs_errors <- rbind(lhs_errors_noticks, lhs_errors_ticks)
+
+write_csv(lhs_errors, 'data/processed/fire_LHS_errors.csv')
 ```
 
 # Plots
+```{r}
+# lhs_results <- read_csv('data/processed/fire_LHS_results.csv')
+# lhs_errors <- read_csv('data/processed/fire_LHS_errors.csv')
+```
+
 Fix results and errors data frames:
 ```{r}
 lhs_results <- lhs_results %>%
