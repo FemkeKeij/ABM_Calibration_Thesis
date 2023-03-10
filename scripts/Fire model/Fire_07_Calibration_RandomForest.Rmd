@@ -267,7 +267,118 @@ ggsave('figures/fire_randomforest_RMSE_burn.pdf')
 ```
 
 ## Model fit
-For density
+Variable importance plots for density & directions
+```{r}
+fit_forest_density_noticks <- randomForest(density ~ burn_percentage +
+                                            directions,
+                                          data = fire_train,
+                                   importance = TRUE)
 
-For directions
+imp_noticks <- as.data.frame(varImpPlot(fit_forest_density_noticks))
+imp_noticks$varNames <- rownames(imp_noticks) # row names to column
+colnames(imp_noticks) <- c('percIncMSE', 'IncNodePurity', 'varNames')
 
+p1 <- imp_noticks %>%
+  ggplot(aes(x = varNames,
+             weight = percIncMSE, y = percIncMSE,
+             colour = varNames)) +
+  geom_point(size = 3) +
+  geom_segment(aes(x = varNames, xend = varNames, y = 0, yend = percIncMSE),
+               linewidth = 1.5) +
+  labs(y = '% increase MSE when removing variable',
+       x = NULL) +
+  ylim(0, 50) +
+  theme_minimal() +
+  theme(panel.grid.minor = element_blank(),
+        panel.border = element_rect(colour = 'lightgrey', fill = NA),
+        legend.position = 'none') +
+  ggtitle('Density, no ticks')
+
+fit_forest_density_ticks <- randomForest(density ~ burn_percentage +
+                                            directions + ticks,
+                                          data = fire_train,
+                                   importance = TRUE)
+
+imp_ticks <- as.data.frame(varImpPlot(fit_forest_density_ticks))
+imp_ticks$varNames <- rownames(imp_ticks) # row names to column
+colnames(imp_ticks) <- c('percIncMSE', 'IncNodePurity', 'varNames')
+
+p2 <- imp_ticks %>%
+  ggplot(aes(x = varNames,
+             weight = percIncMSE, y = percIncMSE,
+             colour = varNames)) +
+  geom_point(size = 3) +
+  geom_segment(aes(x = varNames, xend = varNames, y = 0, yend = percIncMSE),
+               linewidth = 1.5) +
+  labs(y = '% increase MSE when removing variable',
+       x = NULL) +
+  ylim(0, 50) +
+  theme_minimal() +
+  theme(panel.grid.minor = element_blank(),
+        panel.border = element_rect(colour = 'lightgrey', fill = NA),
+        legend.position = 'none') +
+  ggtitle('Density, ticks')
+
+fit_forest_directions_noticks <- randomForest(directions ~ burn_percentage +
+                                            density,
+                                          data = fire_train,
+                                   importance = TRUE)
+
+imp_directions_noticks <-
+  as.data.frame(varImpPlot(fit_forest_directions_noticks))
+imp_directions_noticks$varNames <- 
+  rownames(imp_directions_noticks) # row names to column
+colnames(imp_directions_noticks) <- c('percIncMSE', 'IncNodePurity',
+                                      'varNames')
+
+p3 <- imp_directions_noticks %>%
+  ggplot(aes(x = varNames,
+             weight = percIncMSE, y = percIncMSE,
+             colour = varNames)) +
+  geom_point(size = 3) +
+  geom_segment(aes(x = varNames, xend = varNames, y = 0, yend = percIncMSE),
+               linewidth = 1.5) +
+  labs(y = '% increase MSE when removing variable',
+       x = NULL) +
+  ylim(0, 375) +
+  theme_minimal() +
+  theme(panel.grid.minor = element_blank(),
+        panel.border = element_rect(colour = 'lightgrey', fill = NA),
+        legend.position = 'none') +
+  ggtitle('Directions, no ticks')
+
+fit_forest_directions_ticks <- randomForest(directions ~ burn_percentage +
+                                            density + ticks,
+                                          data = fire_train,
+                                   importance = TRUE)
+
+imp_directions_ticks <- as.data.frame(varImpPlot(fit_forest_directions_ticks))
+imp_directions_ticks$varNames <- 
+  rownames(imp_directions_ticks) # row names to column
+colnames(imp_directions_ticks) <- c('percIncMSE', 'IncNodePurity', 'varNames')
+
+p4 <- imp_directions_ticks %>%
+  ggplot(aes(x = varNames,
+             weight = percIncMSE, y = percIncMSE,
+             colour = varNames)) +
+  geom_point(size = 3) +
+  geom_segment(aes(x = varNames, xend = varNames, y = 0, yend = percIncMSE),
+               linewidth = 1.5) +
+  labs(y = '% increase MSE when removing variable',
+       x = NULL) +
+  ylim(0, 375) +
+  theme_minimal() +
+  theme(panel.grid.minor = element_blank(),
+        panel.border = element_rect(colour = 'lightgrey', fill = NA),
+        legend.position = 'none') +
+  ggtitle('Directions, ticks')
+
+(p1 + p2) / (p3 + p4)
+  plot_layout(guides = 'collect') +
+  plot_annotation(tag_levels = 'A') &
+  theme(plot.tag = element_text(size = 8))
+  
+ggsave('figures/fire_forest_varimportance.pdf')
+```
+
+I could still add partial dependence plots if I want to.
