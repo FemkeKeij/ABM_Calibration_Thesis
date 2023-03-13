@@ -92,9 +92,6 @@ ElasticNetFitting <- function(ticks = FALSE){
     # calculate and save mean density in training set
     density_means[i] <- mean(fire_train_sub$density)
     
-    # determine number of knots
-    k_burn <- length(unique(round(fire_train_sub$burn_percentage)))
-    
     if(ticks == TRUE){
       # Elastic Net to predict density when ticks are included
       fit_elastic_density <- train(density ~ burn_percentage +
@@ -134,7 +131,6 @@ ElasticNetFitting <- function(ticks = FALSE){
                                       tuneLength = 10)
     }
     # predict density in test data using fitted Elastic Net
-    # include SEs to compute coverage later on
     predict_elastic_density <- predict(fit_elastic_density,
                                        newdata = fire_test)
     # predict direction in test data using fitted regression
@@ -290,142 +286,152 @@ ggsave('figures/fire_elasticnet_RMSE_burn.pdf')
 ```
 
 ## Model fit
-
-
-
-Predicted vs. true density (largest sample size only):
+For density
 ```{r}
-elastic_results$n <- as.factor(elastic_results$n)
-elastic_results$direction_true <-
-  as.factor(elastic_results$direction_true)
-elastic_results$direction_pred <-
-  as.factor(elastic_results$direction_pred)
-elastic_results %>%
-  mutate(direction_correct = (direction_pred == direction_true)) ->
-  elastic_results
+fit_elastic_density_noticks <- train(density ~ burn_percentage + directions,
+                                     data = fire_train,
+                                     method = 'glmnet',
+                                     trControl = trainControl(method = 'cv',
+                                                              number = 10),
+                                     tuneLength = 10)
+# plot(fit_elastic_density_noticks)
 
-supp_labs <- c('without ticks', 'with ticks')
-names(supp_labs) <- c('no', 'yes')
+predict_elastic_density_noticks <- data.frame(
+  burn_percentage = fire_train$burn_percentage,
+  predicted_density = predict(fit_elastic_density_noticks),
+  directions = fire_train$directions)
 
-elastic_results %>%
-  filter(n == 1584) %>%
-  ggplot(mapping = aes(x = density_pred, y = density_true,
-                       colour = direction_correct)) +
-  facet_grid(. ~ ticks_included,
-             labeller = labeller(ticks_included = supp_labs)) +
+p1 <- fire_train %>%
+  ggplot(mapping = aes(x = burn_percentage, y = density,
+                       colour = directions)) +
+  geom_point() +
+  geom_line(data = predict_elastic_density_noticks,
+            mapping = aes(x = burn_percentage, y = predicted_density,
+                          group = directions, colour = directions)) +
+  theme_minimal() +
+  theme(panel.grid.minor = element_blank(),
+        panel.border = element_rect(colour = 'lightgrey', fill = NA)) +
+  labs(x = '% burned trees at last tick',
+       y = 'tree density (%)',
+       colour = 'number of \n directions') +
+  coord_flip() +
+  ggtitle('no ticks')
+
+fit_elastic_density_ticks <- train(density ~ burn_percentage +
+                                     directions + ticks,
+                                   data = fire_train,
+                                   method = 'glmnet',
+                                   trControl = 
+                                     trainControl(method = 'cv', number = 10),
+                                   tuneLength = 10)
+# plot(fit_elastic_density_ticks)
+
+predict_elastic_density_ticks <- data.frame(
+  burn_percentage = fire_train$burn_percentage,
+  predicted_density = predict(fit_elastic_density_ticks),
+  directions = fire_train$directions)
+
+p2 <- fire_train %>%
+  ggplot(mapping = aes(x = burn_percentage, y = density,
+                       colour = directions)) +
+  geom_point() +
+  geom_line(data = predict_elastic_density_ticks,
+            mapping = aes(x = burn_percentage, y = predicted_density,
+                          group = directions, colour = directions)) +
+  theme_minimal() +
+  theme(panel.grid.minor = element_blank(),
+        panel.border = element_rect(colour = 'lightgrey', fill = NA)) +
+  labs(x = '% burned trees at last tick',
+       y = 'tree density (%)',
+       colour = 'number of \n directions') +
+  coord_flip() +
+  ggtitle('ticks')
+
+patch <- p1 + p2 +
+    plot_layout(guides = 'collect') +
+    plot_annotation(tag_levels = 'A') & 
+    theme(plot.tag = element_text(size = 8)) &
+    ylab(NULL)
+  
+wrap_elements(panel = patch) +
+  labs(tag = 'tree density (%)') +
+  theme(plot.tag = element_text(size = rel(1)),
+        plot.tag.position = 'bottom')
+
+ggsave('figures/fire_elasticnet_fit_density.pdf')
+```
+
+For directions
+```{r}
+fit_elastic_directions_noticks <- train(directions ~ burn_percentage + density,
+                                     data = fire_train,
+                                     method = 'glmnet',
+                                     trControl = trainControl(method = 'cv',
+                                                              number = 10),
+                                     tuneLength = 10)
+# plot(fit_elastic_directions_noticks)
+
+predict_elastic_directions_noticks <- data.frame(
+  burn_percentage = fire_train$burn_percentage,
+  predicted_directions = predict(fit_elastic_directions_noticks),
+  true_directions = fire_train$directions,
+  density = fire_train$density)
+
+predict_elastic_directions_noticks <- predict_elastic_directions_noticks %>%
+  mutate(directions_correct = (predicted_directions == true_directions))
+
+p1 <- predict_elastic_directions_noticks %>%
+  ggplot(mapping = aes(x = density, y = burn_percentage,
+                       colour = directions_correct)) +
   geom_point() +
   theme_minimal() +
-  labs(x = 'predicted density',
-       y = 'true density',
-       colour = 'Number of directions \n predicted correctly',
-       shape = 'Predicted number of directions') +
-  theme(panel.grid.minor.y = element_blank(),
-        panel.grid.minor.x = element_blank())
+  theme(panel.grid.minor = element_blank(),
+        panel.border = element_rect(colour = 'lightgrey', fill = NA)) +
+  labs(x = 'tree density (%)',
+       y = '% burned trees at last tick',
+       colour = 'number of \n directions \n predicted \n correctly') +
+  ggtitle('no ticks')
 
-ggsave('figures/fire_ElasticNet_pred_vs_true.pdf')
-```
+fit_elastic_directions_ticks <- train(directions ~ burn_percentage + density +
+                                        ticks,
+                                     data = fire_train,
+                                     method = 'glmnet',
+                                     trControl = trainControl(method = 'cv',
+                                                              number = 10),
+                                     tuneLength = 10)
+# plot(fit_elastic_directions_ticks)
 
-% of predictions that are correct
-```{r}
-elastic_errors$n <- as.factor(elastic_errors$n)
+predict_elastic_directions_ticks <- data.frame(
+  burn_percentage = fire_train$burn_percentage,
+  predicted_directions = predict(fit_elastic_directions_ticks),
+  true_directions = fire_train$directions,
+  density = fire_train$density)
 
-elastic_errors %>%
-  filter(n == c(99, 792, 1584)) %>%
-  ggplot(mapping = aes(x = n, y = perc_correct,
-                       fill = ticks_included)) +
-  geom_bar(stat = 'identity',
-           position = position_dodge()) +
-  labs(y = 'density & direction',
-       fill = 'Ticks included') +
+predict_elastic_directions_ticks <- predict_elastic_directions_ticks %>%
+  mutate(directions_correct = (predicted_directions == true_directions))
+
+p2 <- predict_elastic_directions_ticks %>%
+  ggplot(mapping = aes(x = density, y = burn_percentage,
+                       colour = directions_correct)) +
+  geom_point() +
   theme_minimal() +
-  theme(panel.grid.major.x = element_blank(),
-        panel.grid.minor.x = element_blank()) -> p1
+  theme(panel.grid.minor = element_blank(),
+        panel.border = element_rect(colour = 'lightgrey', fill = NA)) +
+  labs(x = 'tree density (%)',
+       y = '% burned trees at last tick',
+       colour = 'number of \n directions \n predicted \n correctly') +
+  ggtitle('ticks')
 
-elastic_errors %>%
-  filter(n == c(99, 792, 1584)) %>%
-  ggplot(mapping = aes(x = n, y = perc_density_correct,
-                       fill = ticks_included)) +
-  geom_bar(stat = 'identity',
-           position = position_dodge()) +
-  labs(y = 'density',
-       fill = 'Ticks included') +
-  theme_minimal() +
-  theme(panel.grid.major.x = element_blank(),
-        panel.grid.minor.x = element_blank()) -> p2
+patch <- p1 + p2 +
+    plot_layout(guides = 'collect') +
+    plot_annotation(tag_levels = 'A') & 
+    theme(plot.tag = element_text(size = 8)) &
+    xlab(NULL)
+  
+wrap_elements(panel = patch) +
+  labs(tag = 'tree density (%)') +
+  theme(plot.tag = element_text(size = rel(1)),
+        plot.tag.position = 'bottom')
 
-elastic_errors %>%
-  filter(n == c(99, 792, 1584)) %>%
-  ggplot(mapping = aes(x = n, y = perc_direction_correct,
-                       fill = ticks_included)) +
-  geom_bar(stat = 'identity',
-           position = position_dodge()) +
-  labs(y = 'direction',
-       fill = 'Ticks included') +
-  theme_minimal() +
-  theme(panel.grid.major.x = element_blank(),
-        panel.grid.minor.x = element_blank()) -> p3
-
-elastic_errors %>%
-  filter(n == c(99, 792, 1584)) %>%
-  ggplot(mapping = aes(x = n, y = perc_correct_cat,
-                       fill = ticks_included)) +
-  geom_bar(stat = 'identity',
-           position = position_dodge()) +
-  labs(y = 'density within \n 10% of true density',
-       fill = 'Ticks included') +
-  theme_minimal() +
-  theme(panel.grid.major.x = element_blank(),
-        panel.grid.minor.x = element_blank()) -> p4
-
-p1 + p2 + p3 + p4 +
-  plot_layout(guides = 'collect') +
-  plot_annotation(tag_levels = 'A',
-                  title = '% correctly predicted') & 
-  theme(plot.tag = element_text(size = 8))
-
-ggsave('figures/fire_ElasticNet_perc_correct.pdf')
-```
-
-RMSE, NRMSE & point prediction performance
-```{r}
-elastic_errors %>%
-  ggplot(mapping = aes(x = n, y = RMSE,
-                       fill = ticks_included)) +
-  geom_bar(stat = 'identity',
-           position = position_dodge()) +
-  labs(fill = 'Ticks included') +
-  theme_minimal() +
-  theme(panel.grid.major.x = element_blank(),
-        panel.grid.minor.x = element_blank()) +
-  coord_flip() -> p1
-
-elastic_errors %>%
-  ggplot(mapping = aes(x = n, y = NRMSE,
-                       fill = ticks_included)) +
-  geom_bar(stat = 'identity',
-           position = position_dodge()) +
-  labs(fill = 'Ticks included') +
-  theme_minimal() +
-  theme(panel.grid.major.x = element_blank(),
-        panel.grid.minor.x = element_blank()) +
-  coord_flip() -> p2
-
-elastic_errors %>%
-  ggplot(mapping = aes(x = n, y = point_pred_performance,
-                       fill = ticks_included)) +
-  geom_bar(stat = 'identity',
-           position = position_dodge()) +
-  labs(fill = 'Ticks included',
-       y = 'point prediction performance') +
-  theme_minimal() +
-  theme(panel.grid.major.x = element_blank(),
-        panel.grid.minor.x = element_blank()) +
-  coord_flip() -> p3
-
-p1 + p2 + p3 +
-  plot_layout(guides = 'collect') +
-  plot_annotation(tag_levels = 'A') & 
-  theme(plot.tag = element_text(size = 8))
-
-ggsave('figures/fire_ElasticNet_RMSE.pdf')
-```
+ggsave('figures/fire_elasticnet_fit_directions.pdf')
+``` 
