@@ -1,0 +1,331 @@
+---
+title: "WolfSheep_00_Run_Model"
+author: "Femke Keij S2647168"
+date: "2023-03-13"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Import Python modules:
+```{python}
+import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
+import math
+sns.set_style('white')
+sns.set_context('talk')
+
+import pyNetLogo # to run NetLogo from RStudio
+```
+
+Import R packages:
+```{r}
+# for importing / working with tidy data
+library(tidyverse)
+```
+
+Set seed:
+```{r}
+set.seed(42)
+```
+
+# Running all possible parameter combinations
+Link to and start the Fire model:
+```{python}
+netlogo = pyNetLogo.NetLogoLink(gui = True) # start netlogo
+
+netlogo.load_model(r"C:\Users\Femke Keij\OneDrive\Thesis\R projects\LU thesis local\models\WolfSheep_myversion.nlogo")
+# open model
+```
+
+To determine how often the model should be run, I look at the coefficient of variation: $standard deviation / mean * 100$. At the number of repetitions where this remains approximately the same, we can assume convergence [LU40]. This is only true for linear relationships, which we don't have here, but it will give an indication of how often to run the model. I only use a few parameter settings to cut down on the run time, and I also don't include the very extremes of the parameter settings since those tend to take longer to run.
+```{r}
+initial_number_sheep <- c(100, 230)
+initial_number_wolves <- c(100, 230)
+sheep_gain_from_food <- c(10, 25, 40)
+wolf_gain_from_food <- c(25, 50, 80)
+sheep_reproduce <- c(10, 20)
+wolf_reproduce <- c(10, 20)
+grass_regrowth <- c(50, 100)
+
+part_comb <- expand.grid(initial_number_sheep, initial_number_wolves,
+            sheep_gain_from_food, wolf_gain_from_food,
+            sheep_reproduce, wolf_reproduce,
+            grass_regrowth)
+colnames(part_comb) <- c('initial_number_sheep', 'initial_number_wolves',
+                        'sheep_gain_from_food', 'wolf_gain_from_food',
+                        'sheep_reproduce', 'wolf_reproduce',
+                        'grass_regrowth')
+
+write_csv(part_comb, 'data/processed/WolfSheep_CVparams.csv')
+```
+
+```{python}
+all_comb = pd.read_csv('data/processed/WolfSheep_CVparams.csv')
+
+# set to correct model version
+netlogo.command('set model-version "sheep-wolves-grass"')
+# set random seed
+netlogo.command('clean')
+
+# data frame to store results
+results_df = pd.DataFrame(columns = ['run', 'sheep', 'wolves', 'grass'])
+
+# for each combination of parameters
+for i in range(0, len(all_comb)):
+  # retrieve parameters for run
+  initial_number_sheep = str(all_comb['initial_number_sheep'][i])
+  initial_number_wolves = str(all_comb['initial_number_wolves'][i])
+  sheep_gain_from_food = str(all_comb['sheep_gain_from_food'][i])
+  wolf_gain_from_food = str(all_comb['wolf_gain_from_food'][i])
+  sheep_reproduce = str(all_comb['sheep_reproduce'][i])
+  wolf_reproduce = str(all_comb['wolf_reproduce'][i])
+  grass_regrowth = str(all_comb['grass_regrowth'][i])
+  
+  # set parameters
+  netlogo.command(''.join(['set initial-number-sheep ', initial_number_sheep]))
+  netlogo.command(''.join(['set initial-number-wolves ', initial_number_wolves]))
+  netlogo.command(''.join(['set sheep-gain-from-food ', sheep_gain_from_food]))
+  netlogo.command(''.join(['set wolf-gain-from-food ', wolf_gain_from_food]))
+  netlogo.command(''.join(['set sheep-reproduce ', sheep_reproduce]))
+  netlogo.command(''.join(['set wolf-reproduce ', wolf_reproduce]))
+  netlogo.command(''.join(['set grass-regrowth-time ', grass_regrowth]))
+  
+  # run combination 20 times
+  for j in range(1, 21):
+    # set up
+    netlogo.command('setup')
+    # execute for 500 ticks or until the model is done
+    netlogo.command('repeat 500 [go]')
+    # record number of sheep, wolves, and grass
+    sheep = netlogo.report('count sheep')
+    wolves = netlogo.report('count wolves')
+    grass = netlogo.report('count grass')
+    # add to data frame
+    results_df = results_df.append({'run': j, 'sheep': sheep, 'wolves': wolves, 'grass': grass}, ignore_index = True)
+  
+  print(''.join(['finished run ', str(i), '\n']), flush = True)
+```
+Compute the CVs
+```{python}
+# numbers of runs to compare
+runs = [5, 10, 15, 20]
+# dataframe to store CVs
+CVs = pd.DataFrame(columns = ['runs', 'CV_sheep', 'CV_wolves', 'CV_grass'])
+
+# if standard deviation = 0, set CV to 0
+def check_std(x):
+  if math.isinf(x):
+    x = 0
+  else:
+    x = int(x)
+  return(x)
+
+# for each number of runs
+for k in runs:
+  # sample which runs to use (out of 20)
+  run_ind = random.sample(range(1,21), k = k)
+  sample_df = results_df.loc[results_df['run'].isin(run_ind)]
+  # compute CV for sheep, wolves, and grass
+  # run through check_std function to correct for std = 0, if necessary
+  CV_new_sheep = sample_df['sheep'].mean() / sample_df['sheep'].std() * 100
+  CV_new_sheep = check_std(CV_new_sheep)
+  CV_new_wolves = sample_df['wolves'].mean() / sample_df['wolves'].std() * 100
+  CV_new_wolves = check_std(CV_new_wolves)
+  CV_new_grass = sample_df['grass'].mean() / sample_df['grass'].std() * 100
+  CV_new_grass = check_std(CV_new_grass)
+  # add new CVs to data frame
+  CVs = CVs.append({'runs': k, 'CV_sheep' : CV_new_sheep, 'CV_wolves': CV_new_wolves, 'CV_grass': CV_new_grass}, ignore_index = True)
+```
+Inspect results
+```{python}
+CVs
+
+CVs.to_csv('data/processed/wolfsheep_CVs.csv')
+```
+15 runs is sufficient.
+
+I set up a Latin Hypercube sample of the parameter space to ensure adequate coverage. Then I run the model 15 times for each parameter combination.
+```{r}
+# for Latin hypercube sampling
+library(lhs)
+
+# n: number of samples to draw
+# k: number of variables over which to sample
+  
+# LHS with n samples over k variables
+A <- randomLHS(n = 40, k = 7)
+  
+# transform samples to represent the parameter space
+# create empty matrix to hold parameter space samples
+B <- matrix(nrow = nrow(A), ncol = ncol(A))
+# round uniform distribution between 0 and 25 for
+# initial number of sheep and wolves
+B[,1] <- round(qunif(A[,1], min = 0, max = 250), digits = 0)
+B[,2] <- round(qunif(A[,2], min = 0, max = 250), digits = 0)
+# round uniform distribution between 0 and 50 for sheep gain from food
+B[,3] <- round(qunif(A[,3], min = 0, max = 50), digits = 0)
+# round uniform distribution between 0 and 100 for wolf gain from food
+B[,4] <- round(qunif(A[,4], min = 0, max = 100), digits = 0)
+# round uniform distribution between 1 and 20 for 
+# sheep reproduction probability and wolf reproduction probability
+B[,5] <- round(qunif(A[,5], min = 1, max = 20), digits = 0)
+B[,6] <- round(qunif(A[,6], min = 1, max = 20), digits = 0)
+# round uniform distribution between 0 and 100 for grass regrowth time
+B[,7] <- round(qunif(A[,7], min = 0, max = 100), digits = 0)
+
+# set column names
+colnames(B) <- c('initial_number_sheep', 'initial_number_wolves',
+                        'sheep_gain_from_food', 'wolf_gain_from_food',
+                        'sheep_reproduce', 'wolf_reproduce',
+                        'grass_regrowth')
+```
+Inspect sample to see if I'm happy with it:
+```{r}
+summary(B)
+``` 
+Save to import in Python:
+```{r}
+write_csv(as.data.frame(B), 'data/processed/wolfsheep_parameterspace.csv')
+```
+
+```{python}
+all_comb = pd.read_csv('data/processed/wolfsheep_parameterspace.csv')
+
+parameter_space_df = pd.DataFrame(columns = ['run', 'initial_number_sheep', 'initial_number_wolves', 'sheep_gain_from_food', 'wolf_gain_from_food', 'sheep_reproduce', 'wolf_reproduce', 'grass_regrowth', 'sheep', 'wolves', 'grass', 'ticks'])
+
+# set random seed
+netlogo.command('clean')
+
+# for each combination of parameters
+for i in range(0, len(all_comb)):
+  # retrieve parameters for run
+  initial_number_sheep = str(all_comb['initial_number_sheep'][i])
+  initial_number_wolves = str(all_comb['initial_number_wolves'][i])
+  sheep_gain_from_food = str(all_comb['sheep_gain_from_food'][i])
+  wolf_gain_from_food = str(all_comb['wolf_gain_from_food'][i])
+  sheep_reproduce = str(all_comb['sheep_reproduce'][i])
+  wolf_reproduce = str(all_comb['wolf_reproduce'][i])
+  grass_regrowth = str(all_comb['grass_regrowth'][i])
+  
+  # set parameters
+  netlogo.command(''.join(['set initial-number-sheep ', initial_number_sheep]))
+  netlogo.command(''.join(['set initial-number-wolves ', initial_number_wolves]))
+  netlogo.command(''.join(['set sheep-gain-from-food ', sheep_gain_from_food]))
+  netlogo.command(''.join(['set wolf-gain-from-food ', wolf_gain_from_food]))
+  netlogo.command(''.join(['set sheep-reproduce ', sheep_reproduce]))
+  netlogo.command(''.join(['set wolf-reproduce ', wolf_reproduce]))
+  netlogo.command(''.join(['set grass-regrowth-time ', grass_regrowth]))
+  
+  # run combination 15 times
+  for j in range(1, 16):
+    # set up
+    netlogo.command('setup')
+    # execute 1 tick at a time, and report
+    for h in range(0, 500):
+      netlogo.command('go')
+      # record number of sheep, wolves, grass, and ticks
+      sheep = netlogo.report('count sheep')
+      wolves = netlogo.report('count wolves')
+      grass = netlogo.report('count grass')
+      ticks = netlogo.report('ticks')
+      # add to data frame
+      parameter_space_df = parameter_space_df.append({'run': j, 'initial_number_sheep': initial_number_sheep, 'initial_number_wolves': initial_number_wolves, 'sheep_gain_from_food': sheep_gain_from_food, 'wolf_gain_from_food': wolf_gain_from_food, 'sheep_reproduce': sheep_reproduce, 'wolf_reproduce': wolf_reproduce, 'grass_regrowth': grass_regrowth, 'sheep': sheep, 'wolves': wolves, 'grass': grass, 'ticks': ticks}, ignore_index = True)
+      # break out of this level if the maximum number of sheep is reached and there are no wolves or grass left
+      if wolves == 0 and grass == 0 and sheep > 30000:
+        break
+      
+  print(''.join(['finished run ', str(i), '\n']), flush = True)
+
+# save data as csv file
+parameter_space_df.to_csv("C:/Users/Femke Keij/OneDrive/Thesis/R projects/LU thesis local/data/raw/wolfsheep_output.csv")
+```
+
+Close the model:
+```{python}
+netlogo.kill_workspace()
+```
+
+Stop running the python environment:
+```{python}
+quit
+```
+
+# Split into training and test data
+Clear working directory:
+```{r}
+rm(list = ls(all = TRUE)) 
+```
+
+Import csv output format for the model as tidy data. We ignore the first column because it contains the indices.
+```{r}
+ws_output <- read_csv("data/raw/wolfsheep_output.csv",
+                        col_names = TRUE)[, - 1]
+```
+
+Manipulate data so that there is 1 outcome for each parameter combination:
+The outcomes for each parameter set are summarised by their mean sheep, wolves, and grass at every tick of the simulation, as well as the min and max of those numbers.
+```{r}
+all_comb <- read_csv('data/processed/wolfsheep_parameterspace.csv')
+ws_output$comb_number <- numeric(nrow(ws_output))
+
+for(i in nrow(all_comb)){
+  init_sheep = all_comb[i, 1]
+  init_wolves = all_comb[i, 2]
+  sheep_food = all_comb[i, 3]
+  wolf_food = all_comb[i, 4]
+  sheep_rep = all_comb[i, 5]
+  wolf_rep = all_comb[i, 6]
+  grass_re = all_comb[i, 7]
+  
+  for(j in nrow(wf_output)){
+    if(ws_output$initial_number_sheep[j] == init_sheep &
+       ws_output$initial_number_wolves[j] == init_wolves &
+       ws_output$sheep_gain_from_food[j] == sheep_food &
+       ws_output$wolf_gain_from_food[j] == wolf_food &
+       ws_output$sheep_reproduce[j] == sheep_rep &
+       ws_output$wolf_reproduce[j] == wolf_rep &
+       ws_output$grass_regrowth[j] == grass_re){
+      ws_output$comb_number[j] <- i
+    }
+  }
+}
+
+# group the data by parameter combination and ticks
+ws_summary <- ws_output %>%
+  group_by(comb_number, ticks) %>%
+  # take the mean, min, and max wolf, sheep, and grass numbers over the 15 runs for each density
+  summarise(mean_sheep = mean(sheep),
+            min_sheep = min(sheep),
+            max_sheep = max(sheep),
+            mean_wolves = mean(wolves),
+            min_wolves = min(wolves),
+            max_wolves = max(wolves),
+            mean_grass = mean(grass),
+            min_grass = min(grass),
+            max_grass = max(grass))
+  
+ws_summary %>%
+  write_csv(file = 'data/processed/wolfsheep_summary.csv')
+```
+
+Set up the training and test data:
+I'm using a 80 - 20 split.
+```{r}
+set.seed(42)
+
+ind <- sample(1:nrow(ws_output),
+              size = nrow(ws_output) * 0.2,
+              replace = FALSE)
+
+ws_output %>%
+  slice(ind) %>%
+  write_csv(file = 'data/processed/wolfsheep_test.csv')
+
+ws_output %>%
+  slice(-ind) %>%
+  write_csv(file = 'data/processed/wolfsheep_train.csv')
+```
