@@ -1,0 +1,54 @@
+---
+title: "WolfSheep_01_Explore_Model"
+author: "Femke Keij S2647168"
+date: "2023-03-15"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Clear working directory:
+```{r}
+rm(list = ls(all = TRUE)) 
+```
+
+Packages used:
+```{r}
+# for importing / working with tidy data
+library(tidyverse)
+
+# for arranging ggplots
+library(patchwork)
+
+# for ggplot aesthetics
+library(directlabels)
+library(RColorBrewer)
+```
+
+Random seed:
+```{r}
+set.seed(42)
+```
+
+Read in the data:
+```{r}
+# complete data set
+ws_output <- read_csv(
+  'data/raw/wolfsheep_output.csv')
+
+# training data
+ws_train <- read_csv(
+  'data/processed/wolfsheep_train.csv')
+
+# test data
+ws_test <- read_csv(
+  'data/processed/wolfsheep_test.csv')
+
+# output data summary
+ws_summary <- read_csv(
+  'data/processed/wolfsheep_summary.csv')
+```
+
+# Plots

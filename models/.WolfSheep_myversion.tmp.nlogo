@@ -191,7 +191,7 @@ initial-number-sheep
 initial-number-sheep
 0
 250
-215.0
+138.0
 1
 1
 NIL
@@ -206,7 +206,7 @@ sheep-gain-from-food
 sheep-gain-from-food
 0.0
 50.0
-14.0
+31.0
 1.0
 1
 NIL
@@ -221,7 +221,7 @@ sheep-reproduce
 sheep-reproduce
 1.0
 20.0
-18.0
+1.0
 1.0
 1
 %
@@ -236,7 +236,7 @@ initial-number-wolves
 initial-number-wolves
 0
 250
-244.0
+132.0
 1
 1
 NIL
@@ -251,7 +251,7 @@ wolf-gain-from-food
 wolf-gain-from-food
 0.0
 100.0
-95.0
+20.0
 1.0
 1
 NIL
@@ -266,7 +266,7 @@ wolf-reproduce
 wolf-reproduce
 0.0
 20.0
-17.0
+18.0
 1.0
 1
 %
@@ -281,7 +281,7 @@ grass-regrowth-time
 grass-regrowth-time
 0
 100
-36.0
+59.0
 1
 1
 NIL
