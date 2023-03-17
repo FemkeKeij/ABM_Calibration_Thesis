@@ -49,24 +49,78 @@ ws_test <- read_csv(
 # output data summary
 ws_summary <- read_csv(
   'data/processed/wolfsheep_summary.csv')
+
+# parameter combinations
+all_comb <- read_csv('data/processed/wolfsheep_parameterspace.csv')
 ```
 
 # Plots
 Initial sheep and wolves plus the resulting final average numbers of sheep and wolves
 ```{r}
-ws_summary %>%
-  filter(ticks == 500) %>%
+ws_summary_lasttick <- ws_summary %>%
+  group_by(combination_number) %>%
+  mutate(max_ticks = max(ticks)) %>%
+  filter(ticks == max_ticks) %>%
+  ungroup()
+
+p1 <- ws_summary_lasttick %>%
   ggplot(mapping = aes(x = initial_number_sheep, y = initial_number_wolves)) +
-  geom_tile(aes(fill = mean_sheep))
+  geom_point(mapping = aes(colour = mean_sheep),
+             size = 5) +
+  theme_minimal()+
+  theme(panel.grid.minor = element_blank()) +
+  labs(x = 'initial number of sheep',
+       y = 'initial number of wolves',
+       colour = 'mean number of \n sheep at last tick') +
+  scale_colour_gradient(low = 'navy', high = 'red')
 
+p2 <- ws_summary_lasttick %>%
+  ggplot(mapping = aes(x = initial_number_sheep, y = initial_number_wolves)) +
+  geom_point(mapping = aes(colour = mean_wolves),
+             size = 5) +
+  theme_minimal()+
+  theme(panel.grid.minor = element_blank()) +
+  labs(x = 'initial number of sheep',
+       y = 'initial number of wolves',
+       colour = 'mean number of \n wolves at last tick') +
+  scale_colour_gradient(low = 'navy', high = 'red')
 
-ggplot(short , aes(x = penetration, y = scc)) +
-  geom_raster(aes(fill = pi0), interpolate=TRUE) +
-  scale_fill_gradient2(low="navy", mid="white", high="red", 
-                       midpoint=0, limits=range(short$pi0)) +
-  theme_classic()
+p1 + p2
+```
+
+```{r}
+all_comb_cat <- all_comb %>%
+  mutate(more_sheep = (initial_number_sheep > initial_number_wolves),
+         sheep_gain_food_more = (sheep_gain_from_food > wolf_gain_from_food),
+         sheep_reproduce_more = (sheep_reproduce > wolf_reproduce))
 ```
 
 Average sheep, wolf, and grass populations over time for different initial parameter settings
+```{r}
+ws_summary %>%
+  group_by(combination_number) %>%
+  mutate(max_ticks = max(ticks),
+         more_sheep = all_comb_cat$more_sheep[combination_number],
+         sheep_gain_food_more =
+           all_comb_cat$sheep_gain_food_more[combination_number],
+         sheep_reproduce_more =
+           all_comb_cat$sheep_reproduce_more[combination_number]) %>%
+  ungroup() %>%
+  filter(max_ticks == 500) %>%
+  ggplot(mapping = aes(x = ticks, y = mean_sheep)) +
+  geom_line(colour = 'bisque2', linewidth = 1) +
+  geom_line(mapping = aes(y = initial_number_sheep),
+            colour = 'bisque2', linetype = 2) +
+  geom_line(mapping = aes(y = mean_wolves),
+            colour = 'darkgrey', linewidth = 1) +
+  geom_line(mapping = aes(y = initial_number_wolves),
+            colour = 'darkgrey', linetype = 2) +
+  geom_line(mapping = aes(y = mean_grass),
+            colour = 'chartreuse3', linewidth = 1) +
+  theme_minimal() +
+  labs(y = 'mean number') +
+  facet_wrap(~ more_sheep + sheep_gain_food_more + sheep_reproduce_more,
+             scales = 'free_y')
+```
 
 
