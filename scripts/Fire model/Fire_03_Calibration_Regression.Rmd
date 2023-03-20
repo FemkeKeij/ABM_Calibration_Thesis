@@ -211,7 +211,7 @@ write_csv(regression_results,
 regression_errors <- rbind(regression_errors_noticks, regression_errors_ticks)
 write_csv(regression_errors,
           'data/processed/fire_regression_errors.csv')
-``` 
+```
 
 # Plots
 ```{r}
@@ -268,6 +268,12 @@ Coverage:
 PlotCoverageDensity(regression_errors, n_plot = n)
 
 ggsave('figures/fire_regression_coverage.pdf')
+```
+F1, kappa score, and MCC for directions:
+```{r}
+PlotMetricsDirections(regression_errors, n_plot = c(99, 792, 1584))
+
+ggsave('figures/fire_regression_directions_metrics.pdf')
 ```
 
 ## Model fit

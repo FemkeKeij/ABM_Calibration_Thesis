@@ -1,3 +1,8 @@
+# for confusion matrices
+library(caret)
+# for matthew's correlation coefficient
+library(mltools)
+
 ##--------------- COMPUTE ERRORS -------------------##
 # function to calculate errors for the fire model
 ComputeErrors <- function(results, ticks = FALSE,
@@ -46,6 +51,25 @@ ComputeErrors <- function(results, ticks = FALSE,
                 sum(sqrt((density_pred - density_true)^2)) /
                 sum(sqrt((density_true - density_means)^2))) ->
     errors
+  
+  errors$direction_kappa <- numeric(nrow(errors))
+  errors$direction_f1 <- numeric(nrow(errors))
+  errors$direction_mcc <- numeric(nrow(errors))
+  
+  # add the error measures for the directions
+  for(i in 1:length(unique(results$n))){
+    results_sub <- results %>%
+      filter(n == results$n[i])
+    
+    cm <- confusionMatrix(as.factor(results_sub$direction_pred),
+                          as.factor(results_sub$direction_true),
+                          mode = 'everything')
+    
+    errors$direction_kappa[i] = cm$overall[2]
+    errors$direction_f1[i] = cm$byClass[7]
+    errors$direction_mcc[i] = mcc(results_sub$direction_pred,
+                                  results_sub$direction_true)
+  }
   
   # if method produced prediction interval:
   # compute coverage and add to output
@@ -274,6 +298,7 @@ PlotRMSEOut <- function(errors, n_plot){
 
 PlotCoverageDensity <- function(errors, n_plot){
   errors %>%
+    filter(n %in% n_plot) %>%
     ggplot(mapping = aes(x = n, y = coverage,
                          colour = ticks_included)) +
     lims(y = c(0.94, 1.0)) +
@@ -284,4 +309,50 @@ PlotCoverageDensity <- function(errors, n_plot){
          colour = 'Ticks included',
          y = 'coverage (95% \n prediction interval)') +
     theme_minimal()
+}
+
+PlotMetricsDirections <- function(errors, n_plot){
+  p1 <- errors %>%
+    filter(n %in% n_plot) %>%
+    ggplot(mapping = aes(x = factor(n), y = direction_kappa,
+                         colour = ticks_included)) +
+    geom_point(size = 3) +
+    theme_minimal() +
+    theme(panel.grid.minor = element_blank()) +
+    labs(y = 'kappa score for directions',
+         colour = 'ticks included') +
+    lims(y = c(0, NA))
+  
+  p2 <- errors %>%
+    filter(n %in% n_plot) %>%
+    ggplot(mapping = aes(x = factor(n), y = direction_f1,
+                         colour = ticks_included)) +
+    geom_point(size = 3) +
+    theme_minimal() +
+    theme(panel.grid.minor = element_blank()) +
+    labs(y = 'F1 score for directions',
+         colour = 'ticks included') +
+    lims(y = c(0, NA))
+  
+  p3 <- errors %>%
+    filter(n %in% n_plot) %>%
+    ggplot(mapping = aes(x = factor(n), y = direction_mcc,
+                         colour = ticks_included)) +
+    geom_point(size = 3) +
+    theme_minimal() +
+    theme(panel.grid.minor = element_blank()) +
+    labs(y = 'MCC for directions',
+         colour = 'ticks included') +
+    lims(y = c(0, NA))
+  
+  patch <- p1 + p2 + p3 +
+    plot_layout(guides = 'collect') +
+    plot_annotation(tag_levels = 'A') & 
+    theme(plot.tag = element_text(size = 8)) &
+    xlab(NULL)
+  
+  wrap_elements(panel = patch) +
+    labs(tag = 'training sample size') +
+    theme(plot.tag = element_text(size = rel(1)),
+          plot.tag.position = 'bottom')
 }
