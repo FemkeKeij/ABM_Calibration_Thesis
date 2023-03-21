@@ -12,12 +12,12 @@ ComputeErrors <- function(results, ticks = FALSE,
   # pred_int_included: set to TRUE if fitting produced prediction interval for density
   
   # copy mean density to appropriate sample sizes
-  merge(results, as_tibble(cbind(n, density_means)),
-        by = c('n')) %>%
+  errors <- merge(results, as_tibble(cbind(n, density_means)),
+                  by = c('n')) %>%
     # per sample size, summarise
     group_by(n) %>%
               # % correctly predicted direction + density in test set
-    summarise(perc_correct = sum(direction_true == direction_pred &
+    summarise(perc_correct_params = sum(direction_true == direction_pred &
                                    density_true == round(density_pred))
                 / nrow(fire_test),
               # % correctly predicted density in test set
@@ -29,7 +29,7 @@ ComputeErrors <- function(results, ticks = FALSE,
                                              direction_pred) /
                 nrow(fire_test),
               # % predicted density within 10% of true density in test set
-              perc_correct_cat = sum(density_pred >=
+              perc_correct_cat_density = sum(density_pred >=
                                        density_true - 5 &
                                        density_pred <=
                                        density_true + 5) /
@@ -47,10 +47,9 @@ ComputeErrors <- function(results, ticks = FALSE,
               NRMSE_burn = (sqrt(sum((burn_pred - burn_true)^2))
                             / nrow(fire_test)) / sd(density_true),
               # point prediction performance for density
-              point_pred_performance = 1 - 
+              point_pred_performance_density = 1 - 
                 sum(sqrt((density_pred - density_true)^2)) /
-                sum(sqrt((density_true - density_means)^2))) ->
-    errors
+                sum(sqrt((density_true - density_means)^2)))
   
   errors$direction_kappa <- numeric(nrow(errors))
   errors$direction_f1 <- numeric(nrow(errors))
@@ -74,15 +73,15 @@ ComputeErrors <- function(results, ticks = FALSE,
   # if method produced prediction interval:
   # compute coverage and add to output
   if(pred_int_included == TRUE){
-    merge(results, as_tibble(cbind(n, density_means)),
+    errors2 <- merge(results, as_tibble(cbind(n, density_means)),
           by = c('n')) %>%
       group_by(n) %>%
-      summarise(coverage = sum(density_true <= density_pred_upr &
+      summarise(coverage_density = sum(density_true <= density_pred_upr &
                                  density_true >= density_pred_lwr) /
-                  nrow(fire_test)) -> errors2
-    coverage <- errors2$coverage
+                  nrow(fire_test))
+    coverage_density <- errors2$coverage_density
     
-    errors <- cbind(errors, coverage)
+    errors <- cbind(errors, coverage_density)
   }
   
   # add indicator for ticks included yes or no
@@ -149,7 +148,7 @@ PlotPercCorrectParams <- function(errors, n_plot){
   # n_plot: sample sizes to plot (can be multiple)
   p1 <- errors %>%
     filter(n %in% n_plot)%>%
-    ggplot(mapping = aes(x = n, y = perc_correct,
+    ggplot(mapping = aes(x = n, y = perc_correct_params,
                          fill = ticks_included)) +
     geom_bar(stat = 'identity',
              position = position_dodge()) +
@@ -188,7 +187,7 @@ PlotPercCorrectParams <- function(errors, n_plot){
   
   p4 <- errors %>%
     filter(n %in% n_plot) %>%
-    ggplot(mapping = aes(x = n, y = perc_correct_cat,
+    ggplot(mapping = aes(x = n, y = perc_correct_cat_density,
                          fill = ticks_included)) +
     geom_bar(stat = 'identity',
              position = position_dodge()) +
@@ -238,7 +237,7 @@ PlotRMSEParams <- function(errors, n_plot){
   
   p3 <- errors %>%
     filter(n %in% n_plot) %>%
-    ggplot(mapping = aes(x = n, y = point_pred_performance,
+    ggplot(mapping = aes(x = n, y = point_pred_performance_density,
                          fill = ticks_included)) +
     geom_bar(stat = 'identity',
              position = position_dodge()) +
@@ -300,7 +299,7 @@ PlotRMSEOut <- function(errors, n_plot){
 PlotCoverageDensity <- function(errors, n_plot){
   plot <- errors %>%
     filter(n %in% n_plot) %>%
-    ggplot(mapping = aes(x = n, y = coverage,
+    ggplot(mapping = aes(x = n, y = coverage_density,
                          colour = ticks_included)) +
     lims(y = c(0.94, 1.0)) +
     geom_hline(yintercept = 0.95,
