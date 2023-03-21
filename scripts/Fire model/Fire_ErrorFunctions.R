@@ -58,7 +58,7 @@ ComputeErrors <- function(results, ticks = FALSE,
   # add the error measures for the directions
   for(i in 1:length(unique(results$n))){
     results_sub <- results %>%
-      filter(n == results$n[i])
+      filter(n == unique(results$n)[i])
     
     cm <- confusionMatrix(as.factor(results_sub$direction_pred),
                           as.factor(results_sub$direction_true),

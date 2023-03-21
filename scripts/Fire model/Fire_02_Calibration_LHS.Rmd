@@ -284,3 +284,9 @@ PlotRMSEOut(lhs_errors, n_plot = c(99, 792, 1584))
 
 ggsave('figures/fire_LHS_RMSE_burn.pdf')
 ```
+F1, kappa score, and MCC for directions:
+```{r}
+PlotMetricsDirections(lhs_errors, n_plot = c(99, 792, 1584))
+
+ggsave('figures/fire_lhs_directions_metrics.pdf')
+```
