@@ -250,11 +250,25 @@ regression_errors <- regression_errors %>%
   mutate(n = factor(n))
 ```
 
+Predicted vs. true for density, directions, and burn percentage
+```{r}
+p1 <- PlotPredTrueDensity(regression_results, n = 1584)
+p2 <- PlotPredTrueDirection(regression_results, n = 1584)
+p3 <- PlotPredTrueBurn(regression_results, n = 1584)
+
+p1 / p2 / p3
+```
 Predicted vs. true density (largest sample size only):
 ```{r}
 PlotPredTrueDensity(regression_results, n = 1584)
 
 ggsave('figures/fire_piecewise_predtrue_density.pdf')
+```
+Confusion matrix for predicted vs. true directions:
+```{r}
+PlotPredTrueDirection(regression_results, n = 1584)
+
+ggsave('figures/fire_piecewise_predtrue_direction.pdf')
 ```
 Predicted vs. true burn percentage (largest sample size only):
 ```{r}
@@ -262,35 +276,31 @@ PlotPredTrueBurn(regression_results, n = 1584)
 
 ggsave('figures/fire_piecewise_predtrue_burn.pdf')
 ```
+### Parameters
 % correctly predicted parameters (density & directions):
 ```{r}
 PlotPercCorrectParams(regression_errors, n_plot = c(99, 792, 1584))
 
 ggsave('figures/fire_piecewise_perc_correct.pdf')
 ```
-RMSE, NRMSE and point prediction performance for density parameter:
+RMSE, NRMSE, point prediction performance, and coverage for density parameter:
 ```{r}
-PlotRMSEParams(regression_errors, n_plot = c(99, 792, 1584))
+PlotErrorsDensity(regression_errors, n_plot = c(99, 792, 1584))
 
-ggsave('figures/fire_piecewise_RMSE_density.pdf')
+ggsave('figures/fire_piecewise_density_metrics.pdf')
 ```
+F1, kappa score, and MCC for directions:
+```{r}
+PlotErrorsDirections(regression_errors, n_plot = c(99, 792, 1584))
+
+ggsave('figures/fire_piecewise_directions_metrics.pdf')
+```
+### Outcome variable
 RMSE for burn percentage:
 ```{r}
 PlotRMSEOut(regression_errors, n_plot = c(99, 792, 1584))
 
 ggsave('figures/fire_piecewise_RMSE_burn.pdf')
-```
-Coverage:
-```{r}
-PlotCoverageDensity(regression_errors, n_plot = n)
-
-ggsave('figures/fire_piecewise_coverage.pdf')
-```
-F1, kappa score, and MCC for directions:
-```{r}
-PlotMetricsDirections(regression_errors, n_plot = c(99, 792, 1584))
-
-ggsave('figures/fire_piecewise_directions_metrics.pdf')
 ```
 
 ## Model fit

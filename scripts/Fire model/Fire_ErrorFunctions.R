@@ -5,7 +5,7 @@ library(mltools)
 
 ##--------------- COMPUTE ERRORS -------------------##
 # function to calculate errors for the fire model
-ComputeErrors <- function(results, ticks = FALSE,
+ComputeErrors <- function(results, fits, ticks = FALSE,
                              density_means, pred_int_included = FALSE){
   # results: dataframe with results from fitting
   # density means: mean density in training data for each sample size

@@ -253,41 +253,58 @@ gam_errors <- gam_errors %>%
   mutate(n = factor(n))
 ```
 
+### Predicted vs. true
+Predicted vs. true for density, directions, and burn percentage
+```{r}
+p1 <- PlotPredTrueDensity(gam_results, n = 1584)
+p2 <- PlotPredTrueDirection(gam_results, n = 1584)
+p3 <- PlotPredTrueBurn(gam_results, n = 1584)
+
+p1 / p2 / p3
+```
 Predicted vs. true density (largest sample size only):
 ```{r}
 PlotPredTrueDensity(gam_results, n = 1584)
 
-ggsave('figures/fire_gam_predtrue_density.pdf')
+ggsave('figures/fire_GAM_predtrue_density.pdf')
+```
+Confusion matrix for predicted vs. true directions:
+```{r}
+PlotPredTrueDirection(gam_results, n = 1584)
+
+ggsave('figures/fire_GAM_predtrue_direction.pdf')
 ```
 Predicted vs. true burn percentage (largest sample size only):
 ```{r}
 PlotPredTrueBurn(gam_results, n = 1584)
 
-ggsave('figures/fire_gam_predtrue_burn.pdf')
+ggsave('figures/fire_GAM_predtrue_burn.pdf')
 ```
+### Parameters
 % correctly predicted parameters (density & directions):
 ```{r}
 PlotPercCorrectParams(gam_errors, n_plot = c(99, 792, 1584))
 
-ggsave('figures/fire_gam_perc_correct.pdf')
+ggsave('figures/fire_GAM_perc_correct.pdf')
 ```
-RMSE, NRMSE and point prediction performance for density parameter:
+RMSE, NRMSE, point prediction performance, and coverage for density parameter:
 ```{r}
-PlotRMSEParams(gam_errors, n_plot = c(99, 792, 1584))
+PlotErrorsDensity(gam_errors, n_plot = c(99, 792, 1584))
 
-ggsave('figures/fire_gam_RMSE_density.pdf')
+ggsave('figures/fire_GAM_density_metrics.pdf')
 ```
+F1, kappa score, and MCC for directions:
+```{r}
+PlotErrorsDirections(gam_errors, n_plot = c(99, 792, 1584))
+
+ggsave('figures/fire_GAM_directions_metrics.pdf')
+```
+### Outcome variable
 RMSE for burn percentage:
 ```{r}
 PlotRMSEOut(gam_errors, n_plot = c(99, 792, 1584))
 
-ggsave('figures/fire_gam_RMSE_burn.pdf')
-```
-F1, kappa score, and MCC for directions:
-```{r}
-PlotMetricsDirections(gam_errors, n_plot = c(99, 792, 1584))
-
-ggsave('figures/fire_gam_directions_metrics.pdf')
+ggsave('figures/fire_GAM_RMSE_burn.pdf')
 ```
 
 ## Model fit

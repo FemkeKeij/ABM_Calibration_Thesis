@@ -77,11 +77,12 @@ LinearRegressionFitting <- function(ticks = FALSE){
                               burn_pred = numeric(length_tib),
                               n = numeric(length_tib),
                               ticks_included = numeric(length_tib))
+  regression_fits <- tibble(density_fit = numeric(),
+                            direction_fit = numeric(),
+                            n = numeric())
   # vector to store mean density in each training sample
   # (to calculate point prediction performance later on)
   density_means <- numeric(length(n))
-  # list to store fitted regression lines
-  regression_fits <- list()
 
   count <- 1
   
@@ -116,11 +117,15 @@ LinearRegressionFitting <- function(ticks = FALSE){
     predict_lm_density <- predict.lm(fit_lm_density,
                                              newdata = fire_test,
                                      interval = 'prediction')
+    # retrieve fitted training data
+    fit_lm_density <- predict.lm(fit_lm_density)
     # predict direction in test data using fitted regression
     predict_glm_directions <- predict.glm(fit_glm_directions,
                                                   newdata = fire_test,
                                                   type = 'response')
-    # correct the predicted directions from '1' and '2' to '4' and '8'
+    # retrieve fitted training data
+    fit_glm_directions <- predict.glm(fit_glm_directions)
+    # correct the predicted directions from probabilities to '4' and '8'
     # to match test data
     for(k in 1:nrow(fire_test)){
       if(predict_glm_directions[k] < 0.5){
@@ -129,6 +134,20 @@ LinearRegressionFitting <- function(ticks = FALSE){
         predict_glm_directions[k] <- 8
       }
     }
+    # correct the fitted directions to '4' and '8'
+    for(k in 1:nrow(fire_train_sub)){
+      if(fit_glm_directions[k] < 0){
+        fit_glm_directions[k] <- 4
+      } else{
+        fit_glm_directions[k] <- 8
+      }
+    }
+    
+    # store the fitted data
+    add_dat <- tibble(density_fit = fit_lm_density,
+                  direction_fit = fit_glm_directions,
+                  n = n[i])
+    regression_fits <- rbind(regression_fits, add_dat)
     
     # for each instance of the test data
     for(j in 1:nrow(fire_test)){
@@ -160,8 +179,6 @@ LinearRegressionFitting <- function(ticks = FALSE){
       
       count <- count + 1
     }
-    # store regression fit
-    regression_fits <- append(regression_fits, fit_lm_density)
   }
   
   # correct format of direction_true variable
@@ -170,7 +187,7 @@ LinearRegressionFitting <- function(ticks = FALSE){
          direction_true = replace(direction_true, direction_true == 2, 8)) ->
     regression_results
   
-  # return table with results, density means, and fitted regression lines
+  # return table with results, density means, and fitted regression values
   return(list(regression_results, density_means, regression_fits))
 }
 ```
@@ -232,12 +249,26 @@ regression_results <- regression_results %>%
 regression_errors <- regression_errors %>%
   mutate(n = factor(n))
 ```
+### Predicted vs. true
+Predicted vs. true for density, directions, and burn percentage
+```{r}
+p1 <- PlotPredTrueDensity(regression_results, n = 1584)
+p2 <- PlotPredTrueDirection(regression_results, n = 1584)
+p3 <- PlotPredTrueBurn(regression_results, n = 1584)
 
+p1 / p2 / p3
+```
 Predicted vs. true density (largest sample size only):
 ```{r}
 PlotPredTrueDensity(regression_results, n = 1584)
 
 ggsave('figures/fire_regression_predtrue_density.pdf')
+```
+Confusion matrix for predicted vs. true directions:
+```{r}
+PlotPredTrueDirection(regression_results, n = 1584)
+
+ggsave('figures/fire_regression_predtrue_direction.pdf')
 ```
 Predicted vs. true burn percentage (largest sample size only):
 ```{r}
@@ -245,35 +276,31 @@ PlotPredTrueBurn(regression_results, n = 1584)
 
 ggsave('figures/fire_regression_predtrue_burn.pdf')
 ```
+### Parameters
 % correctly predicted parameters (density & directions):
 ```{r}
 PlotPercCorrectParams(regression_errors, n_plot = c(99, 792, 1584))
 
 ggsave('figures/fire_regression_perc_correct.pdf')
 ```
-RMSE, NRMSE and point prediction performance for density parameter:
+RMSE, NRMSE, point prediction performance, and coverage for density parameter:
 ```{r}
-PlotRMSEParams(regression_errors, n_plot = c(99, 792, 1584))
+PlotErrorsDensity(regression_errors, n_plot = c(99, 792, 1584))
 
-ggsave('figures/fire_regression_RMSE_density.pdf')
+ggsave('figures/fire_regression_density_metrics.pdf')
 ```
+F1, kappa score, and MCC for directions:
+```{r}
+PlotErrorsDirections(regression_errors, n_plot = c(99, 792, 1584))
+
+ggsave('figures/fire_regression_directions_metrics.pdf')
+```
+### Outcome variable
 RMSE for burn percentage:
 ```{r}
 PlotRMSEOut(regression_errors, n_plot = c(99, 792, 1584))
 
 ggsave('figures/fire_regression_RMSE_burn.pdf')
-```
-Coverage:
-```{r}
-PlotCoverageDensity(regression_errors, n_plot = n)
-
-ggsave('figures/fire_regression_coverage.pdf')
-```
-F1, kappa score, and MCC for directions:
-```{r}
-PlotMetricsDirections(regression_errors, n_plot = c(99, 792, 1584))
-
-ggsave('figures/fire_regression_directions_metrics.pdf')
 ```
 
 ## Model fit

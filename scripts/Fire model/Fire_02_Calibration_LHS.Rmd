@@ -254,39 +254,55 @@ lhs_errors <- lhs_errors %>%
   mutate(n = factor(n))
 ```
 
+Predicted vs. true for density, directions, and burn percentage
+```{r}
+p1 <- PlotPredTrueDensity(lhs_results, n = 1584)
+p2 <- PlotPredTrueDirection(lhs_results, n = 1584)
+p3 <- PlotPredTrueBurn(lhs_results, n = 1584)
+
+p1 / p2 / p3
+```
 Predicted vs. true density (largest sample size only):
 ```{r}
 PlotPredTrueDensity(lhs_results, n = 1584)
 
 ggsave('figures/fire_LHS_predtrue_density.pdf')
 ```
+Confusion matrix for predicted vs. true directions:
+```{r}
+PlotPredTrueDirection(lhs_results, n = 1584)
+
+ggsave('figures/fire_LHS_predtrue_direction.pdf')
+```
 Predicted vs. true burn percentage (largest sample size only):
 ```{r}
 PlotPredTrueBurn(lhs_results, n = 1584)
 
-ggsave('figures/fire_LHS_predtrue_burn')
+ggsave('figures/fire_LHS_predtrue_burn.pdf')
 ```
+### Parameters
 % correctly predicted parameters (density & directions):
 ```{r}
 PlotPercCorrectParams(lhs_errors, n_plot = c(99, 792, 1584))
 
 ggsave('figures/fire_LHS_perc_correct.pdf')
 ```
-RMSE, NRMSE and point prediction performance for density parameter:
+RMSE, NRMSE, point prediction performance, and coverage for density parameter:
 ```{r}
-PlotRMSEParams(lhs_errors, n_plot = c(99, 792, 1584))
+PlotErrorsDensity(lhs_errors, n_plot = c(99, 792, 1584))
 
 ggsave('figures/fire_LHS_RMSE_density.pdf')
 ```
+F1, kappa score, and MCC for directions:
+```{r}
+PlotErrorsDirections(lhs_errors, n_plot = c(99, 792, 1584))
+
+ggsave('figures/fire_LHS_directions_metrics.pdf')
+```
+### Outcome variable
 RMSE for burn percentage:
 ```{r}
 PlotRMSEOut(lhs_errors, n_plot = c(99, 792, 1584))
 
 ggsave('figures/fire_LHS_RMSE_burn.pdf')
-```
-F1, kappa score, and MCC for directions:
-```{r}
-PlotMetricsDirections(lhs_errors, n_plot = c(99, 792, 1584))
-
-ggsave('figures/fire_lhs_directions_metrics.pdf')
 ```
