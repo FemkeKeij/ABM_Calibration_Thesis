@@ -117,6 +117,60 @@ PlotPredTrueDensity <- function(results, n_plot){
   return(plot)
 }
 
+# plot predicted vs. true directions (confusion matrix)
+PlotPredTrueDirection <- function(results, n_plot){
+  # results: data frame with fitting results
+  # n: sample size for which to plot
+  
+  # split data based on ticks or no, and extract correct sample size
+  results_ticks <- results %>%
+    filter(ticks_included == 'yes',
+           n == n_plot)
+  results_noticks <- results %>%
+    filter(ticks_included == 'no',
+           n == n_plot)
+  
+  # compute confusion matrices
+  cm_ticks <- confusionMatrix(factor(results_ticks$direction_pred),
+                              factor(results_ticks$direction_true),
+                              dnn = c('prediction', 'test'))
+  cm_noticks <- confusionMatrix(factor(results_noticks$direction_pred),
+                                factor(results_noticks$direction_true),
+                                dnn = c('prediction', 'test'))
+  dat_ticks <- as.data.frame(cm_ticks$table)
+  dat_noticks <- as.data.frame(cm_noticks$table)
+  
+  p1 <- dat_noticks %>%
+    ggplot(mapping = aes(x = prediction, y = test, fill = Freq)) +
+    geom_tile() +
+    geom_text(aes(label = Freq)) +
+    scale_fill_gradient(low = "white", high = "#009194") +
+    labs(y = 'predicted') +
+    theme_minimal() +
+    theme(legend.position = 'none',
+          panel.border = element_rect(colour = 'lightgrey', fill = NA)) +
+    scale_x_discrete(labels = c('4 directions', '8 directions')) +
+    scale_y_discrete(labels = c('4 directions', '8 directions')) +
+    ggtitle('without ticks')
+  
+  p2 <- dat_ticks %>%
+    ggplot(mapping = aes(x = prediction, y = test, fill = Freq)) +
+    geom_tile() +
+    geom_text(aes(label = Freq)) +
+    scale_fill_gradient(low = "white", high = "#009194") +
+    labs(y = 'predicted') +
+    theme_minimal() +
+    theme(legend.position = 'none',
+          panel.border = element_rect(colour = 'lightgrey', fill = NA)) +
+    scale_x_discrete(labels = c('4 directions', '8 directions')) +
+    scale_y_discrete(labels = c('4 directions', '8 directions')) +
+    ggtitle('with ticks')
+  
+  plot <- p1 + p2
+  
+  return(plot)
+}
+
 # plot predicted vs. true burn percentage
 PlotPredTrueBurn <- function(results, n_plot){
   # results: data frame with fitting results
@@ -208,29 +262,33 @@ PlotPercCorrectParams <- function(errors, n_plot){
 }
 
 # RMSE etc. of density
-PlotRMSEParams <- function(errors, n_plot){
+PlotErrorsDensity <- function(errors, n_plot){
   p1 <- errors %>%
     filter(n %in% n_plot) %>%
     ggplot(mapping = aes(x = n, y = RMSE_density,
-                         fill = ticks_included)) +
-    geom_bar(stat = 'identity',
-             position = position_dodge()) +
-    labs(fill = 'Ticks included',
-         x = NULL,
-         y = 'RMSE of density') +
+                         colour = ticks_included)) +
+    geom_point(position = position_dodge(width = 0.5),
+               size = 3) +
+    geom_linerange(aes(x = n, ymin = 0, ymax = RMSE_density,
+                       colour = ticks_included),
+                   position = position_dodge(width = 0.5)) +
+    labs(colour = 'Ticks included',
+         y = 'RMSE') +
     theme_minimal() +
     theme(panel.grid.major.x = element_blank(),
           panel.grid.minor.x = element_blank())
-  
+
   p2 <- errors %>%
     filter(n %in% n_plot) %>%
     ggplot(mapping = aes(x = n, y = NRMSE_density,
-                         fill = ticks_included)) +
-    geom_bar(stat = 'identity',
-             position = position_dodge()) +
-    labs(fill = 'Ticks included',
-         x = 'training sample size',
-         y = 'NRMSE of density') +
+                         colour = ticks_included)) +
+    geom_point(position = position_dodge(width = 0.5),
+               size = 3) +
+    geom_linerange(aes(x = n, ymin = 0, ymax = NRMSE_density,
+                       colour = ticks_included),
+                   position = position_dodge(width = 0.5)) +
+    labs(colour = 'Ticks included',
+         y = 'NRMSE') +
     theme_minimal() +
     theme(panel.grid.major.x = element_blank(),
           panel.grid.minor.x = element_blank())
@@ -238,51 +296,102 @@ PlotRMSEParams <- function(errors, n_plot){
   p3 <- errors %>%
     filter(n %in% n_plot) %>%
     ggplot(mapping = aes(x = n, y = point_pred_performance_density,
-                         fill = ticks_included)) +
-    geom_bar(stat = 'identity',
-             position = position_dodge()) +
-    labs(fill = 'Ticks included',
-         x = NULL,
+                         colour = ticks_included)) +
+    geom_point(position = position_dodge(width = 0.5),
+               size = 3) +
+    geom_linerange(aes(x = n, ymin = 0, ymax = point_pred_performance_density,
+                       colour = ticks_included),
+                   position = position_dodge(width = 0.5)) +
+    labs(colour = 'Ticks included',
          y = 'point prediction performance') +
     theme_minimal() +
     theme(panel.grid.major.x = element_blank(),
           panel.grid.minor.x = element_blank())
   
-  plot <- p1 + p2 + p3 +
-    plot_layout(guides = 'collect') +
-    plot_annotation(tag_levels = 'A') & 
-    theme(plot.tag = element_text(size = 8))
+  # if the data includes a coverage measure, plot this
+  if('coverage_density' %in% colnames(errors)){
+    p4 <- errors %>%
+      filter(n %in% n_plot)%>%
+      ggplot(mapping = aes(x = n, y = coverage_density,
+                           colour = ticks_included)) +
+      lims(y = c(0.9, 1.0)) +
+      geom_hline(yintercept = 0.95,
+                 colour = 'light green') +
+      geom_beeswarm(size = 3) +
+      labs(x = 'training sample size',
+           y = 'coverage (95% \n prediction interval)') +
+      theme_minimal() +
+      theme(legend.position = 'none')
+    
+    patch <- p1 + p2 + p3 + p4 +
+      plot_layout(guides = 'collect') +
+      plot_annotation(tag_levels = 'A') & 
+      theme(plot.tag = element_text(size = 8)) &
+      xlab(NULL)
+    
+  } else{
+    patch <- p1 + p2 + p3 +
+      plot_layout(guides = 'collect') +
+      plot_annotation(tag_levels = 'A') & 
+      theme(plot.tag = element_text(size = 8)) &
+      xlab(NULL)
+  }
+  
+  plot <- wrap_elements(panel = patch) +
+    labs(tag = 'training sample size') +
+    theme(plot.tag = element_text(size = rel(1)),
+          plot.tag.position = 'bottom')
   
   return(plot)
 }
 
-# RMSE etc. of burn percentage
-PlotRMSEOut <- function(errors, n_plot){
+# plot kappa score, F1 score, and MCC for directions
+PlotErrorsDirections <- function(errors, n_plot){
   p1 <- errors %>%
     filter(n %in% n_plot) %>%
-    ggplot(mapping = aes(x = n, y = RMSE_burn,
-                         fill = ticks_included)) +
-    geom_bar(stat = 'identity',
-             position = position_dodge()) +
-    labs(fill = 'Ticks included',
-         y = 'RMSE of burn percentage at last tick') +
+    ggplot(mapping = aes(x = factor(n), y = direction_kappa,
+                         colour = ticks_included)) +
+    geom_point(position = position_dodge(width = 0.5),
+               size = 3) +
+    geom_linerange(aes(x = n, ymin = 0, ymax = direction_kappa,
+                       colour = ticks_included),
+                   position = position_dodge(width = 0.5)) +
     theme_minimal() +
-    theme(panel.grid.major.x = element_blank(),
-          panel.grid.minor.x = element_blank())
-  
+    theme(panel.grid.minor = element_blank()) +
+    labs(y = 'kappa',
+         colour = 'ticks included')
+
   p2 <- errors %>%
     filter(n %in% n_plot) %>%
-    ggplot(mapping = aes(x = n, y = NRMSE_burn,
-                         fill = ticks_included)) +
-    geom_bar(stat = 'identity',
-             position = position_dodge()) +
-    labs(fill = 'Ticks included',
-         y = 'NRMSE of burn percentage at last tick') +
+    ggplot(mapping = aes(x = factor(n), y = direction_f1,
+                         colour = ticks_included)) +
+    geom_point(position = position_dodge(width = 0.5),
+               size = 3) +
+    geom_linerange(aes(x = n, ymin = 0, ymax = direction_f1,
+                       colour = ticks_included),
+                   position = position_dodge(width = 0.5)) +
     theme_minimal() +
-    theme(panel.grid.major.x = element_blank(),
-          panel.grid.minor.x = element_blank())
+    theme(panel.grid.minor = element_blank()) +
+    labs(y = 'F1 score',
+         colour = 'ticks included') +
+    lims(y = c(0, NA))
   
-  patch <- p1 + p2 +
+  p3 <- errors %>%
+    filter(n %in% n_plot) %>%
+    ggplot(mapping = aes(x = factor(n), y = direction_mcc,
+                         colour = ticks_included)) +
+    geom_point(position = position_dodge(width = 0.5),
+               size = 3) +
+    geom_linerange(aes(x = n, ymin = 0, ymax = direction_mcc,
+                       colour = ticks_included),
+                   position = position_dodge(width = 0.5)) +
+    theme_minimal() +
+    theme(panel.grid.minor = element_blank()) +
+    labs(y = 'MCC',
+         colour = 'ticks included') +
+    lims(y = c(0, NA))
+  
+  patch <- p1 + p2 + p3 +
     plot_layout(guides = 'collect') +
     plot_annotation(tag_levels = 'A') & 
     theme(plot.tag = element_text(size = 8)) &
@@ -296,58 +405,39 @@ PlotRMSEOut <- function(errors, n_plot){
   return(plot)
 }
 
-PlotCoverageDensity <- function(errors, n_plot){
-  plot <- errors %>%
-    filter(n %in% n_plot) %>%
-    ggplot(mapping = aes(x = n, y = coverage_density,
-                         colour = ticks_included)) +
-    lims(y = c(0.94, 1.0)) +
-    geom_hline(yintercept = 0.95,
-               colour = 'light green') +
-    geom_beeswarm() +
-    labs(x = 'training sample size',
-         colour = 'Ticks included',
-         y = 'coverage (95% \n prediction interval)') +
-    theme_minimal()
-  
-  return(plot)
-}
-
-PlotMetricsDirections <- function(errors, n_plot){
+# RMSE etc. of burn percentage
+PlotRMSEOut <- function(errors, n_plot){
   p1 <- errors %>%
     filter(n %in% n_plot) %>%
-    ggplot(mapping = aes(x = factor(n), y = direction_kappa,
+    ggplot(mapping = aes(x = factor(n), y = RMSE_burn,
                          colour = ticks_included)) +
-    geom_point(size = 3) +
+    geom_point(position = position_dodge(width = 0.5),
+               size = 3) +
+    geom_linerange(aes(x = n, ymin = 0, ymax = RMSE_burn,
+                       colour = ticks_included),
+                   position = position_dodge(width = 0.5)) +
+    labs(colour = 'Ticks included',
+         y = 'RMSE') +
     theme_minimal() +
-    theme(panel.grid.minor = element_blank()) +
-    labs(y = 'kappa score for directions',
-         colour = 'ticks included') +
-    lims(y = c(0, NA))
+    theme(panel.grid.major.x = element_blank(),
+          panel.grid.minor.x = element_blank())
   
   p2 <- errors %>%
     filter(n %in% n_plot) %>%
-    ggplot(mapping = aes(x = factor(n), y = direction_f1,
+    ggplot(mapping = aes(x = factor(n), y = NRMSE_burn,
                          colour = ticks_included)) +
-    geom_point(size = 3) +
+    geom_point(position = position_dodge(width = 0.5),
+               size = 3) +
+    geom_linerange(aes(x = n, ymin = 0, ymax = NRMSE_burn,
+                       colour = ticks_included),
+                   position = position_dodge(width = 0.5)) +
+    labs(colour = 'Ticks included',
+         y = 'NRMSE') +
     theme_minimal() +
-    theme(panel.grid.minor = element_blank()) +
-    labs(y = 'F1 score for directions',
-         colour = 'ticks included') +
-    lims(y = c(0, NA))
+    theme(panel.grid.major.x = element_blank(),
+          panel.grid.minor.x = element_blank())
   
-  p3 <- errors %>%
-    filter(n %in% n_plot) %>%
-    ggplot(mapping = aes(x = factor(n), y = direction_mcc,
-                         colour = ticks_included)) +
-    geom_point(size = 3) +
-    theme_minimal() +
-    theme(panel.grid.minor = element_blank()) +
-    labs(y = 'MCC for directions',
-         colour = 'ticks included') +
-    lims(y = c(0, NA))
-  
-  patch <- p1 + p2 + p3 +
+  patch <- p1 + p2 +
     plot_layout(guides = 'collect') +
     plot_annotation(tag_levels = 'A') & 
     theme(plot.tag = element_text(size = 8)) &
