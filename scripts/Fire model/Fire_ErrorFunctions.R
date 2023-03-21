@@ -100,7 +100,7 @@ PlotPredTrueDensity <- function(results, n_plot){
   supp_labs <- c('without ticks', 'with ticks')
   names(supp_labs) <- c('no', 'yes')
   
-  results %>%
+  plot <- results %>%
     filter(n %in% n_plot) %>%
     ggplot(mapping = aes(x = density_pred,
                          y = density_true,
@@ -113,7 +113,7 @@ PlotPredTrueDensity <- function(results, n_plot){
          y = 'true density',
          colour = 'Number of directions \n predicted correctly') +
     theme(panel.grid.minor.y = element_blank(),
-          panel.grid.minor.x = element_blank()) -> plot
+          panel.grid.minor.x = element_blank())
   
   return(plot)
 }
@@ -125,7 +125,7 @@ PlotPredTrueBurn <- function(results, n_plot){
   supp_labs <- c('without ticks', 'with ticks')
   names(supp_labs) <- c('no', 'yes')
   
-  results %>%
+  plot <- results %>%
     filter(n %in% n_plot) %>%
     ggplot(mapping = aes(x = burn_pred,
                          y = burn_true,
@@ -138,7 +138,7 @@ PlotPredTrueBurn <- function(results, n_plot){
          y = 'true burn percentage',
          colour = 'Number of directions \n predicted correctly') +
     theme(panel.grid.minor.y = element_blank(),
-          panel.grid.minor.x = element_blank()) -> plot
+          panel.grid.minor.x = element_blank())
   
   return(plot)
 }
@@ -147,7 +147,7 @@ PlotPredTrueBurn <- function(results, n_plot){
 PlotPercCorrectParams <- function(errors, n_plot){
   # errors: data frame with calculated error measures
   # n_plot: sample sizes to plot (can be multiple)
-  errors %>%
+  p1 <- errors %>%
     filter(n %in% n_plot)%>%
     ggplot(mapping = aes(x = n, y = perc_correct,
                          fill = ticks_included)) +
@@ -158,9 +158,9 @@ PlotPercCorrectParams <- function(errors, n_plot){
          fill = 'Ticks included') +
     theme_minimal() +
     theme(panel.grid.major.x = element_blank(),
-          panel.grid.minor.x = element_blank()) -> p1
+          panel.grid.minor.x = element_blank())
   
-  errors %>%
+  p2 <- errors %>%
     filter(n %in% n_plot) %>%
     ggplot(mapping = aes(x = n, y = perc_density_correct,
                          fill = ticks_included)) +
@@ -171,9 +171,9 @@ PlotPercCorrectParams <- function(errors, n_plot){
          fill = 'Ticks included') +
     theme_minimal() +
     theme(panel.grid.major.x = element_blank(),
-          panel.grid.minor.x = element_blank()) -> p2
+          panel.grid.minor.x = element_blank())
   
-  errors %>%
+  p3 <- errors %>%
     filter(n %in% n_plot) %>%
     ggplot(mapping = aes(x = n, y = perc_direction_correct,
                          fill = ticks_included)) +
@@ -184,9 +184,9 @@ PlotPercCorrectParams <- function(errors, n_plot){
          fill = 'Ticks included') +
     theme_minimal() +
     theme(panel.grid.major.x = element_blank(),
-          panel.grid.minor.x = element_blank()) -> p3
+          panel.grid.minor.x = element_blank())
   
-  errors %>%
+  p4 <- errors %>%
     filter(n %in% n_plot) %>%
     ggplot(mapping = aes(x = n, y = perc_correct_cat,
                          fill = ticks_included)) +
@@ -197,7 +197,7 @@ PlotPercCorrectParams <- function(errors, n_plot){
          fill = 'Ticks included') +
     theme_minimal() +
     theme(panel.grid.major.x = element_blank(),
-          panel.grid.minor.x = element_blank()) -> p4
+          panel.grid.minor.x = element_blank())
   
   plot <- p1 + p2 + p3 + p4 +
     plot_layout(guides = 'collect') +
@@ -210,7 +210,7 @@ PlotPercCorrectParams <- function(errors, n_plot){
 
 # RMSE etc. of density
 PlotRMSEParams <- function(errors, n_plot){
-  errors %>%
+  p1 <- errors %>%
     filter(n %in% n_plot) %>%
     ggplot(mapping = aes(x = n, y = RMSE_density,
                          fill = ticks_included)) +
@@ -221,9 +221,9 @@ PlotRMSEParams <- function(errors, n_plot){
          y = 'RMSE of density') +
     theme_minimal() +
     theme(panel.grid.major.x = element_blank(),
-          panel.grid.minor.x = element_blank()) -> p1
+          panel.grid.minor.x = element_blank())
   
-  errors %>%
+  p2 <- errors %>%
     filter(n %in% n_plot) %>%
     ggplot(mapping = aes(x = n, y = NRMSE_density,
                          fill = ticks_included)) +
@@ -234,9 +234,9 @@ PlotRMSEParams <- function(errors, n_plot){
          y = 'NRMSE of density') +
     theme_minimal() +
     theme(panel.grid.major.x = element_blank(),
-          panel.grid.minor.x = element_blank()) -> p2
+          panel.grid.minor.x = element_blank())
   
-  errors %>%
+  p3 <- errors %>%
     filter(n %in% n_plot) %>%
     ggplot(mapping = aes(x = n, y = point_pred_performance,
                          fill = ticks_included)) +
@@ -247,19 +247,19 @@ PlotRMSEParams <- function(errors, n_plot){
          y = 'point prediction performance') +
     theme_minimal() +
     theme(panel.grid.major.x = element_blank(),
-          panel.grid.minor.x = element_blank()) -> p3
+          panel.grid.minor.x = element_blank())
   
-  p1 + p2 + p3 +
+  plot <- p1 + p2 + p3 +
     plot_layout(guides = 'collect') +
     plot_annotation(tag_levels = 'A') & 
     theme(plot.tag = element_text(size = 8))
   
-  
+  return(plot)
 }
 
 # RMSE etc. of burn percentage
 PlotRMSEOut <- function(errors, n_plot){
-  errors %>%
+  p1 <- errors %>%
     filter(n %in% n_plot) %>%
     ggplot(mapping = aes(x = n, y = RMSE_burn,
                          fill = ticks_included)) +
@@ -269,9 +269,9 @@ PlotRMSEOut <- function(errors, n_plot){
          y = 'RMSE of burn percentage at last tick') +
     theme_minimal() +
     theme(panel.grid.major.x = element_blank(),
-          panel.grid.minor.x = element_blank()) -> p1
+          panel.grid.minor.x = element_blank())
   
-  errors %>%
+  p2 <- errors %>%
     filter(n %in% n_plot) %>%
     ggplot(mapping = aes(x = n, y = NRMSE_burn,
                          fill = ticks_included)) +
@@ -281,7 +281,7 @@ PlotRMSEOut <- function(errors, n_plot){
          y = 'NRMSE of burn percentage at last tick') +
     theme_minimal() +
     theme(panel.grid.major.x = element_blank(),
-          panel.grid.minor.x = element_blank()) -> p2
+          panel.grid.minor.x = element_blank())
   
   patch <- p1 + p2 +
     plot_layout(guides = 'collect') +
@@ -289,15 +289,16 @@ PlotRMSEOut <- function(errors, n_plot){
     theme(plot.tag = element_text(size = 8)) &
     xlab(NULL)
   
-  wrap_elements(panel = patch) +
+  plot <- wrap_elements(panel = patch) +
     labs(tag = 'training sample size') +
     theme(plot.tag = element_text(size = rel(1)),
           plot.tag.position = 'bottom')
   
+  return(plot)
 }
 
 PlotCoverageDensity <- function(errors, n_plot){
-  errors %>%
+  plot <- errors %>%
     filter(n %in% n_plot) %>%
     ggplot(mapping = aes(x = n, y = coverage,
                          colour = ticks_included)) +
@@ -309,6 +310,8 @@ PlotCoverageDensity <- function(errors, n_plot){
          colour = 'Ticks included',
          y = 'coverage (95% \n prediction interval)') +
     theme_minimal()
+  
+  return(plot)
 }
 
 PlotMetricsDirections <- function(errors, n_plot){
@@ -351,8 +354,10 @@ PlotMetricsDirections <- function(errors, n_plot){
     theme(plot.tag = element_text(size = 8)) &
     xlab(NULL)
   
-  wrap_elements(panel = patch) +
+  plot <- wrap_elements(panel = patch) +
     labs(tag = 'training sample size') +
     theme(plot.tag = element_text(size = rel(1)),
           plot.tag.position = 'bottom')
+  
+  return(plot)
 }
