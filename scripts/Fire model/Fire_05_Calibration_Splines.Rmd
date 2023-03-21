@@ -283,6 +283,12 @@ PlotRMSEOut(gam_errors, n_plot = c(99, 792, 1584))
 
 ggsave('figures/fire_gam_RMSE_burn.pdf')
 ```
+F1, kappa score, and MCC for directions:
+```{r}
+PlotMetricsDirections(gam_errors, n_plot = c(99, 792, 1584))
+
+ggsave('figures/fire_gam_directions_metrics.pdf')
+```
 
 ## Model fit
 ```{r}

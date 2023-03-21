@@ -286,6 +286,12 @@ PlotCoverageDensity(regression_errors, n_plot = n)
 
 ggsave('figures/fire_piecewise_coverage.pdf')
 ```
+F1, kappa score, and MCC for directions:
+```{r}
+PlotMetricsDirections(regression_errors, n_plot = c(99, 792, 1584))
+
+ggsave('figures/fire_piecewise_directions_metrics.pdf')
+```
 
 ## Model fit
 Piecewise linear regression for density (only for largest training sample size)
