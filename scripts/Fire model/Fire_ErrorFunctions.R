@@ -66,8 +66,8 @@ ComputeErrors <- function(results, fits, ticks = FALSE,
     
     errors$direction_kappa[i] = cm$overall[2]
     errors$direction_f1[i] = cm$byClass[7]
-    errors$direction_mcc[i] = mcc(results_sub$direction_pred,
-                                  results_sub$direction_true)
+    errors$direction_mcc[i] = mcc(as.factor(results_sub$direction_pred),
+                                  as.factor(results_sub$direction_true))
   }
   
   # if method produced prediction interval:
@@ -353,7 +353,7 @@ PlotErrorsDirections <- function(errors, n_plot){
                          colour = ticks_included)) +
     geom_point(position = position_dodge(width = 0.5),
                size = 3) +
-    geom_linerange(aes(x = n, ymin = 0, ymax = direction_kappa,
+    geom_linerange(aes(x = factor(n), ymin = 0, ymax = direction_kappa,
                        colour = ticks_included),
                    position = position_dodge(width = 0.5)) +
     theme_minimal() +
@@ -367,7 +367,7 @@ PlotErrorsDirections <- function(errors, n_plot){
                          colour = ticks_included)) +
     geom_point(position = position_dodge(width = 0.5),
                size = 3) +
-    geom_linerange(aes(x = n, ymin = 0, ymax = direction_f1,
+    geom_linerange(aes(x = factor(n), ymin = 0, ymax = direction_f1,
                        colour = ticks_included),
                    position = position_dodge(width = 0.5)) +
     theme_minimal() +
@@ -382,7 +382,7 @@ PlotErrorsDirections <- function(errors, n_plot){
                          colour = ticks_included)) +
     geom_point(position = position_dodge(width = 0.5),
                size = 3) +
-    geom_linerange(aes(x = n, ymin = 0, ymax = direction_mcc,
+    geom_linerange(aes(x = factor(n), ymin = 0, ymax = direction_mcc,
                        colour = ticks_included),
                    position = position_dodge(width = 0.5)) +
     theme_minimal() +

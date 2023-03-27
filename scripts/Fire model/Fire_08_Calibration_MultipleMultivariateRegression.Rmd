@@ -27,8 +27,8 @@ library(directlabels)
 library(patchwork)
 library(ggbeeswarm)
 
-# for the reduced rank regression
-library(rrpack)
+# for partial least squares
+library(pls)
 ```
 
 Source files for error computation and plotting functions:
@@ -62,37 +62,15 @@ n <- c(0.05 * N, 0.1 * N, 0.2 * N, 0.3 * N, 0.4 * N, 0.5 * N,
 ```
 
 # Fitting
-CONTINUE HERE
-```{r}
-Y <- cbind(fire_train$density, fire_train$directions)
-X <- cbind(fire_train$burn_percentage, fire_train$ticks)
-
-mrrr(Y = Y, X = X, is.pca = NULL, family = list(gaussian(link = 'identity'),
-                                                binomial(link = 'logit')),
-     list(1, 2))
-```
 
 ```{r}
-library(MultivariateRandomForest)
-testX = cbind(fire_test$burn_percentage, fire_test$ticks)
-
-fit <- build_forest_predict(trainX = X, trainY = Y, n_tree = 100,
-                     m_feature = 1, min_leaf = 5, testX = testX)
-
-write_csv(as.data.frame(fit), 'data/processed/fire_mrf_fitpred.csv')
-```
-
-Fitting regressions to predict density and directions. For density, a simple linear regression with predictors percentage of burned trees, directions of fire spreading, and total number of ticks is used. Since the directions are categorical, a logistic regression with predictors percentage of burned trees, tree density, and total number of ticks is used. These regressions are then used to predict the density and directions based on the burn percentages in the test data.
-```{r}
-LinearRegressionFitting <- function(ticks = FALSE){
+PLSfitting <- function(ticks = FALSE){
   # table to store all output
   length_tib <- sum(nrow(fire_test) * length(n))
-  regression_results <- tibble(direction_true = numeric(length_tib),
+  pls_results <- tibble(direction_true = numeric(length_tib),
                               direction_pred = numeric(length_tib),
                               density_true = numeric(length_tib),
                               density_pred = numeric(length_tib),
-                              density_pred_lwr = numeric(length_tib),
-                              density_pred_upr = numeric(length_tib),
                               burn_true = numeric(length_tib),
                               burn_pred = numeric(length_tib),
                               n = numeric(length_tib),
@@ -101,7 +79,7 @@ LinearRegressionFitting <- function(ticks = FALSE){
   # (to calculate point prediction performance later on)
   density_means <- numeric(length(n))
   # list to store fitted regression lines
-  regression_fits <- list()
+  pls_fits <- list()
 
   count <- 1
   
@@ -112,41 +90,43 @@ LinearRegressionFitting <- function(ticks = FALSE){
     fire_train_sub <- fire_train[ind_sample, ]
     # calculate and save mean density in training set
     density_means[i] <- mean(fire_train_sub$density)
+    # create dummy variables to use for directions
+    fire_use <- fire_train_sub %>%
+      mutate(true_four = ifelse(directions == '4', 1, 0),
+             true_eight = ifelse(directions == '8', 1, 0))
     
     if(ticks == TRUE){
-      # linear regression to predict density when ticks are included
-      fit_lm_density <- lm(data = fire_train_sub,
-                               formula = 'density ~ burn_percentage + directions + ticks')
-      # logistic regression to predict directions when ticks are included
-      fit_glm_directions <- glm(data = fire_train_sub,
-                                    formula = 'directions ~ burn_percentage + density + ticks',
-                                    family = binomial(link = 'logit'))
-      
+      # partial least squares to predict density and directions with ticks
+      fit <- plsr(cbind(density, true_four, true_eight) ~
+                    burn_percentage + ticks,
+                  data = fire_use, validation = 'LOO',
+                  scale = TRUE)
     } else{
-      # linear regression to predict density when ticks are excluded
-      fit_lm_density <- lm(data = fire_train_sub,
-                               formula = 'density ~ burn_percentage + directions')
-      # logistic regression to predict directions when ticks are excluded
-      fit_glm_directions <- glm(data = fire_train_sub,
-                                      formula = 'directions ~ burn_percentage + density',
-                                      family = binomial(link = 'logit'))
+      # partial least squares to predict density and directions without ticks
+      fit <- plsr(cbind(density, true_four, true_eight) ~
+                    burn_percentage,
+                  data = fire_use, validation = 'LOO',
+                  scale = TRUE)
     }
-    # predict density in test data using fitted regression
-    # include prediction interval to compute coverage later on
-    predict_lm_density <- predict.lm(fit_lm_density,
-                                             newdata = fire_test,
-                                     interval = 'prediction')
-    # predict direction in test data using fitted regression
-    predict_glm_directions <- predict.glm(fit_glm_directions,
-                                                  newdata = fire_test,
-                                                  type = 'response')
-    # correct the predicted directions from '1' and '2' to '4' and '8'
+    # cross-validation to determine number of components
+    ncomp.cv <- crossval(fit)$ncomp
+    
+    # predict test data using fitted PLS
+    pred <- predict(fit, newdata = fire_test, ncomp = ncomp.cv)
+    predicted <- data.frame(density_pred = pred[, 1, 1],
+                   direction_four = pred[, 2, 1],
+                   direction_eight = pred[, 3, 1],
+                   direction_pred = numeric(nrow(pred)))
+
+    # correct the predicted directions
     # to match test data
+    # the predictions for the dummy variables can be interpreted
+    # as class probabilities
     for(k in 1:nrow(fire_test)){
-      if(predict_glm_directions[k] < 0.5){
-        predict_glm_directions[k] <- 4
+      if(predicted$direction_four[k] > predicted$direction_eight[k]){
+        predicted$direction_pred[k] <- 4
       } else{
-        predict_glm_directions[k] <- 8
+        predicted$direction_pred[k] <- 8
       }
     }
     
@@ -154,9 +134,15 @@ LinearRegressionFitting <- function(ticks = FALSE){
     for(j in 1:nrow(fire_test)){
       # find an instance in the training data that matches the directions
       # and density
-      ind <- which(fire_train$density == round(predict_lm_density[j,1]) &
+      if(predicted$density_pred[j] < 1){
+        predicted$density_pred[j] <- 1
+      } else if (predicted$density_pred[j] > 99){
+        predicted$density_pred[j] <- 99
+      }
+        
+      ind <- which(fire_train$density == round(predicted$density_pred[j]) &
                      fire_train$directions ==
-                     predict_glm_directions[j])
+                     predicted$direction_pred[j])
       if(length(ind) > 1){
         ind <- sample(ind, size = 1)
       }
@@ -164,130 +150,145 @@ LinearRegressionFitting <- function(ticks = FALSE){
       burn_pred <- fire_train$burn_percentage[ind]
       
       # store all results in table
-      regression_results$direction_true[count] <- fire_test$directions[j]
-      regression_results$direction_pred[count] <-
-        predict_glm_directions[j]
-      regression_results$density_true[count] <- fire_test$density[j]
-      regression_results$density_pred[count] <- predict_lm_density[j,1]
-      regression_results$density_pred_lwr[count] <-
-        predict_lm_density[j,2]
-      regression_results$density_pred_upr[count] <-
-        predict_lm_density[j,3]
-      regression_results$burn_true[count] <- fire_test$burn_percentage[j]
-      regression_results$burn_pred[count] <- burn_pred
-      regression_results$n[count] <- n[i]
-      regression_results$ticks_included[count] <- if(ticks){'yes'}else{'no'}
+      pls_results$direction_true[count] <- fire_test$directions[j]
+      pls_results$direction_pred[count] <-
+        predicted$direction_pred[j]
+      pls_results$density_true[count] <- fire_test$density[j]
+      pls_results$density_pred[count] <- predicted$density[j]
+      pls_results$burn_true[count] <- fire_test$burn_percentage[j]
+      pls_results$burn_pred[count] <- burn_pred
+      pls_results$n[count] <- n[i]
+      pls_results$ticks_included[count] <- if(ticks){'yes'}else{'no'}
       
       count <- count + 1
     }
     # store regression fit
-    regression_fits <- append(regression_fits, fit_lm_density)
+    pls_fits <- append(pls_fits, fit)
+    
+    print(c('finished fitting sample size ', n[i]))
   }
   
   # correct format of direction_true variable
-  regression_results %>%
+  pls_results %>%
     mutate(direction_true = replace(direction_true, direction_true == 1, 4),
          direction_true = replace(direction_true, direction_true == 2, 8)) ->
-    regression_results
+    pls_results
   
   # return table with results, density means, and fitted regression lines
-  return(list(regression_results, density_means, regression_fits))
+  return(list(pls_results, density_means, pls_fits))
 }
 ```
 
 ```{r}
-# fit regressions with ticks
-regression_results_ticks <- LinearRegressionFitting(ticks = TRUE)
-density_means_ticks <- regression_results_ticks[[2]]
-regression_fits_ticks <- regression_results_ticks[[3]]
-regression_results_ticks <- regression_results_ticks[[1]]
+# fit PLS with ticks
+pls_results_ticks <- PLSfitting(ticks = TRUE)
+density_means_ticks <- pls_results_ticks[[2]]
+pls_fits_ticks <- pls_results_ticks[[3]]
+pls_results_ticks <- pls_results_ticks[[1]]
 
-# fit regressions without ticks
-regression_results_noticks <- LinearRegressionFitting(ticks = FALSE)
-density_means_noticks <- regression_results_noticks[[2]]
-regression_fits_noticks <- regression_results_noticks[[3]]
-regression_results_noticks <- regression_results_noticks[[1]]
+# fit PLS without ticks
+pls_results_noticks <- PLSfitting(ticks = FALSE)
+density_means_noticks <- pls_results_noticks[[2]]
+pls_fits_noticks <- pls_results_noticks[[3]]
+pls_results_noticks <- pls_results_noticks[[1]]
 ```
 
 ```{r}
 # run error calculations
-regression_errors_ticks <- ComputeErrors(regression_results_ticks,
-                                         ticks = TRUE,
-                                         density_means_ticks,
-                                         pred_int_included = TRUE)
-regression_errors_noticks <- ComputeErrors(regression_results_noticks,
-                                           ticks = FALSE,
-                                           density_means_noticks,
-                                           pred_int_included = TRUE)
+pls_errors_ticks <- ComputeErrors(pls_results_ticks,
+                                  ticks = TRUE,
+                                  density_means = density_means_ticks,
+                                  pred_int_included = FALSE)
+pls_errors_noticks <- ComputeErrors(pls_results_noticks,
+                                    ticks = FALSE,
+                                    density_means = density_means_noticks,
+                                    pred_int_included = FALSE)
 ```
 
 Merge results
 ```{r}
-regression_results <- rbind(regression_results_noticks,
-                            regression_results_ticks)
-write_csv(regression_results,
-          'data/processed/fire_regression_results.csv')
+pls_results <- rbind(pls_results_noticks,
+                            pls_results_ticks)
+write_csv(pls_results,
+          'data/processed/fire_partialleastsquares_results.csv')
 
-regression_errors <- rbind(regression_errors_noticks, regression_errors_ticks)
-write_csv(regression_errors,
-          'data/processed/fire_regression_errors.csv')
+pls_errors <- rbind(pls_errors_noticks, pls_errors_ticks)
+write_csv(pls_errors,
+          'data/processed/fire_partialleastsquares_errors.csv')
 ``` 
 
 # Plots
 ```{r}
-# regression_results <- read_csv('data/processed/fire_regression_results.csv')
+# pls_results <- read_csv('data/processed/fire_partialleastsquares_results.csv')
 
-# regression_errors <- read_csv('data/processed/fire_regression_errors.csv')
+# pls_errors <- read_csv('data/processed/fire_partialleastsqsuares_errors.csv')
 ```
 
 ## Errors
 Fix results and errors data frames:
 ```{r}
-regression_results <- regression_results %>%
+pls_results <- pls_results %>%
   mutate(n = factor(n),
          direction_true = factor(direction_true),
          direction_pred = factor(direction_pred),
          direction_correct = (direction_pred == direction_true))
 
-regression_errors <- regression_errors %>%
+pls_errors <- pls_errors %>%
   mutate(n = factor(n))
 ```
 
+### Predicted vs. true
+Predicted vs. true for density, directions, and burn percentage
+```{r}
+p1 <- PlotPredTrueDensity(pls_results, n = 1584)
+p2 <- PlotPredTrueDirection(pls_results, n = 1584)
+p3 <- PlotPredTrueBurn(pls_results, n = 1584)
+
+p1 / p2 / p3
+```
 Predicted vs. true density (largest sample size only):
 ```{r}
-PlotPredTrueDensity(regression_results, n = 1584)
+PlotPredTrueDensity(pls_results, n = 1584)
 
-ggsave('figures/fire_regression_predtrue_density.pdf')
+ggsave('figures/fire_pls_predtrue_density.pdf')
+```
+Confusion matrix for predicted vs. true directions:
+```{r}
+PlotPredTrueDirection(pls_results, n = 1584)
+
+ggsave('figures/fire_pls_predtrue_direction.pdf')
 ```
 Predicted vs. true burn percentage (largest sample size only):
 ```{r}
-PlotPredTrueBurn(regression_results, n = 1584)
+PlotPredTrueBurn(pls_results, n = 1584)
 
-ggsave('figures/fire_regression_predtrue_burn.pdf')
+ggsave('figures/fire_pls_predtrue_burn.pdf')
 ```
+### Parameters
 % correctly predicted parameters (density & directions):
 ```{r}
-PlotPercCorrectParams(regression_errors, n_plot = c(99, 792, 1584))
+PlotPercCorrectParams(pls_errors, n_plot = c(99, 792, 1584))
 
-ggsave('figures/fire_regression_perc_correct.pdf')
+ggsave('figures/fire_pls_perc_correct.pdf')
 ```
-RMSE, NRMSE and point prediction performance for density parameter:
+RMSE, NRMSE, point prediction performance, and coverage for density parameter:
 ```{r}
-PlotRMSEParams(regression_errors, n_plot = c(99, 792, 1584))
+PlotErrorsDensity(pls_errors, n_plot = c(99, 792, 1584))
 
-ggsave('figures/fire_regression_RMSE_density.pdf')
+ggsave('figures/fire_pls_density_metrics.pdf')
 ```
+F1, kappa score, and MCC for directions:
+```{r}
+PlotErrorsDirections(pls_errors, n_plot = c(99, 792, 1584))
+
+ggsave('figures/fire_pls_directions_metrics.pdf')
+```
+### Outcome variable
 RMSE for burn percentage:
 ```{r}
-PlotRMSEOut(regression_errors, n_plot = c(99, 792, 1584))
+PlotRMSEOut(pls_errors, n_plot = c(99, 792, 1584))
 
-ggsave('figures/fire_regression_RMSE_burn.pdf')
-```
-Coverage:
-```{r}
-PlotCoverageDensity(regression_errors, n_plot = n)
-
-ggsave('figures/fire_regression_coverage.pdf')
+ggsave('figures/fire_pls_RMSE_burn.pdf')
 ```
 
 ## Model fit
