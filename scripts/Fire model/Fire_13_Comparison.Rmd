@@ -1,0 +1,178 @@
+---
+title: "Fire_13_Comparison"
+author: "Femke Keij S2647168"
+date: "2023-03-29"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Preliminaries
+Clear working directory & set random seed:
+```{r}
+rm(list = ls(all = TRUE))
+
+set.seed(42)
+```
+
+Packages used:
+```{r}
+# for importing / working with tidy data
+library(tidyverse)
+
+# for ggplot
+library(directlabels)
+library(patchwork)
+library(ggbeeswarm)
+```
+
+Data:
+```{r}
+lhs_errors <- read_csv('data/processed/fire_LHS_errors.csv')
+regression_errors <- read_csv('data/processed/fire_regression_errors.csv')
+piecewisereg_errors <- read_csv('data/processed/fire_piecewise_errors.csv')
+gam_errors <- read_csv('data/processed/fire_gam_errors.csv')
+elasticnet_errors <- read_csv('data/processed/fire_elasticnet_errors.csv')
+randomforest_errors <- read_csv('data/processed/fire_forest_errors.csv')
+pls_errors <- read_csv('data/processed/fire_partialleastsquares_errors.csv')
+mrf_errors <- read_csv('data/processed/fire_MultivariateRandomForest_errors.csv')
+# ABC
+# GA
+# Neural networks
+```
+
+Add columns with method name:
+```{r}
+lhs_errors <- lhs_errors %>%
+  mutate(method = 'Latin Hypercube Sampling')
+regression_errors <- regression_errors %>%
+  mutate(method = 'Simple Linear and Logistic Regression')
+piecewisereg_errors <- piecewisereg_errors %>%
+  mutate(method = 'Piecewise Linear and Logistic Regression')
+gam_errors <- gam_errors %>%
+  mutate(method = 'Generalized Additive Model with Cubic Smoothing Spline')
+elasticnet_errors <- elasticnet_errors %>%
+  mutate(method = 'Elastic Net Regression')
+randomforest_errors <- randomforest_errors %>%
+  mutate(method = 'Regression and Classification Random Forest')
+pls_errors <- pls_errors %>%
+  mutate(method = 'Partial Least Squares Regression')
+mrf_errors <- mrf_errors %>%
+  mutate(method = 'Multivariate Random Forest')
+```
+
+Merge all data:
+```{r}
+errors <- bind_rows(lhs_errors, regression_errors, piecewisereg_errors,
+                    gam_errors, elasticnet_errors, randomforest_errors,
+                    pls_errors, mrf_errors)
+```
+
+Now, for each error metric, retrieve the best performance per algorithm, the sample size it was achieved for, and whether it was achieved with or without ticks.
+```{r}
+RetrieveBestPerformance <- function(errors, metric, opt){
+  # errors: data frame with error measurements
+  # metric: metric for which to retrieve best per method
+  # opt: how to determine which is best (min, max, or 95%)
+  
+  optimal_metric <- str_c('optimal_', metric)
+  
+  if(opt == 'max'){
+    errors_return <- errors %>%
+      group_by(method) %>%
+      mutate(optimal_metric = max(get(metric))) %>%
+      ungroup() %>%
+      filter(get(metric) == optimal_metric) %>%
+      select(c('method', 'n', 'ticks_included', optimal_metric))
+  } else if(opt == 'min'){
+    errors_return <- errors %>%
+      group_by(method) %>%
+      mutate(optimal_metric = min(get(metric))) %>%
+      ungroup() %>%
+      filter(get(metric) == optimal_metric) %>%
+      select(c('method', 'n', 'ticks_included', optimal_metric))
+  } else if(opt == '95'){
+    errors_return <- errors %>%
+      group_by(method) %>%
+      mutate(optimal_metric = min(abs(get(metric) - 95))) %>%
+      ungroup() %>%
+      filter(abs(get(metric) - 95) == optimal_metric) %>%
+      select(c('method', 'n', 'ticks_included', optimal_metric))
+  }
+  
+  return(errors_return)
+}
+```
+
+```{r}
+errors_perc_correct_params <- 
+  RetrieveBestPerformance(errors, metric = 'perc_correct_params', opt = 'max')
+errors_perc_density_correct <- 
+  RetrieveBestPerformance(errors, metric = 'perc_density_correct', opt = 'max')
+errors_perc_direction_correct <- 
+  RetrieveBestPerformance(errors, metric = 'perc_direction_correct', opt = 'max')
+errors_perc_correct_cat_density <- 
+  RetrieveBestPerformance(errors, metric = 'perc_correct_cat_density', opt = 'max')
+errors_RMSE_density <- 
+  RetrieveBestPerformance(errors, metric = 'RMSE_density', opt = 'min')
+errors_NRMSE_density <- 
+  RetrieveBestPerformance(errors, metric = 'NRMSE_density', opt = 'min')
+errors_RMSE_burn <- 
+  RetrieveBestPerformance(errors, metric = 'RMSE_burn', opt = 'min')
+errors_NRMSE_burn <- 
+  RetrieveBestPerformance(errors, metric = 'NRMSE_burn', opt = 'min')
+errors_point_pred_performance_density <- 
+  RetrieveBestPerformance(errors, metric = 'point_pred_performance_density', opt = 'max')
+errors_direction_kappa <- 
+  RetrieveBestPerformance(errors, metric = 'direction_kappa', opt = 'max')
+errors_direction_f1 <- 
+  RetrieveBestPerformance(errors, metric = 'direction_f1', opt = 'max')
+errors_direction_mcc <-
+  RetrieveBestPerformance(errors, metric = 'direction_mcc', opt = 'max')
+errors_coverage_density <-
+  RetrieveBestPerformance(errors, metric = 'coverage_density', opt = '95')
+```
+
+# Plotted comparions
+Plot metrics for each method, indicate sample size and colour based on whether or not ticks were included:
+```{r}
+PlotErrorMetrics <- function(errors, metric){
+  # metric: metric to plot performance for
+  # errors: data frame containing
+    # n: sample size
+    # method: algorithm
+    # ...: metric
+    # ticks included: yes or no
+  
+  errors %>%
+    ggplot(mapping = aes(x = method, y = max_metric,
+                         colour = ticks_included)) +
+    geom_point() +
+    ggtitle(metric)
+}
+```
+
+```{r}
+errors_RMSE_burn %>%
+  ggplot(mapping = aes(x = reorder(method, - optimal_metric),
+                       y = optimal_metric,
+                       colour = ticks_included)) +
+  geom_point(aes(size = factor(n))) +
+  geom_linerange(aes(x = method, ymin = 0, ymax = optimal_metric,
+                     colour = ticks_included)) +
+  labs(x = NULL,
+       y = 'RMSE burn percentage') +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.1)),
+                     limits = c(0, NA)) +
+  labs(colour = 'ticks included',
+       size = 'Training sample \n size') +
+  theme_minimal() +
+  theme(panel.grid.minor = element_blank()) +
+  coord_flip()
+```
+
+# Performs best on most fronts
+
+# Makes fewest mistakes overall
