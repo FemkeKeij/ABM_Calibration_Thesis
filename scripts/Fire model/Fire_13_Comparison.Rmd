@@ -410,3 +410,155 @@ methods_ranking <- methods_ranking %>%
   arrange(rank_score)
 ```
 So according to this measure, the GAM with cubic smoothing splines performs best, followed by the Latin Hypercube Sampling.
+
+# Averaged across sample sizes.
+All comparisons above rely heavily on selecting the optimal sample size. Here, I average the performance of each method over all sample sizes and then see which one is best that way.
+
+First, I make a new data frame with the performances averaged over the sample sizes:
+```{r}
+errors_average <- errors %>%
+  group_by(method, ticks_included) %>%
+  summarise_at(vars(metrics_list), mean)
+```
+
+Now compute which method performs best for each error measure
+```{r}
+# tibble to store error measure, best method, inclusion of ticks, and actual value
+# note that the sample size is no longer relevant here because
+# I averaged it out
+average_best <- tibble(metric = character(),
+                       method = character(),
+                       ticks_included = character(),
+                       measure = numeric())
+
+# for each error measure
+for(i in 1:length(metrics_list)){
+  # see if we're interested in minimum or maximum score
+  if(metrics_opt[i] == 'max'){
+    # get appropriate data
+    winner <- errors_average %>%
+      select(c('method', 'ticks_included', metrics_list[i])) %>%
+      ungroup() %>%
+      # find maximum score
+      mutate(max = max(get(metrics_list[i]))) %>%
+      # keep only maximum score
+      filter(get(metrics_list[i]) == max) %>%
+      # transform into appropriate format
+      mutate(metric = metrics_list[i]) %>%
+      select(c('metric', 'method', 'ticks_included', 'max')) %>%
+      rename('measure' = 'max')
+  } else{
+    # get appropriate data
+    winner <- errors_average %>%
+      select(c('method', 'ticks_included', metrics_list[i])) %>%
+      ungroup() %>%
+      # find minimum score
+      mutate(min = min(get(metrics_list[i]))) %>%
+      # keep only minimum score
+      filter(get(metrics_list[i]) == min) %>%
+      # transform into appropriate format
+      mutate(metric = metrics_list[i]) %>%
+      select(c('metric', 'method', 'ticks_included', 'min')) %>%
+      rename('measure' = 'min')
+  }
+  # add to tibble
+  average_best <- average_best %>%
+    add_row(winner)
+}
+
+View(average_best)
+```
+
+For density, see which method performs best on average:
+```{r}
+average_best %>%
+  # find metics for density
+  filter(metric %in% c('perc_density_correct', 'perc_correct_cat_density',
+                       'RMSE_density', 'point_pred_performance_density')) %>%
+  # per method
+  group_by(method) %>%
+  # count how many times each method performs best
+  summarise(n = n()) %>%
+  arrange(- n)
+```
+
+For directions, see which method performs best:
+```{r}
+average_best %>%
+  filter(metric %in% c('direction_kappa', 'direction_f1',
+                       'direction_mcc', 'perc_direction_correct')) %>%
+  group_by(method) %>%
+  summarise(n = n()) %>%
+  arrange(- n)
+```
+
+For burn percentage, see which method performs best:
+```{r}
+average_best %>%
+  filter(metric %in% c('RMSE_burn')) %>%
+  group_by(method) %>%
+  summarise(n = n()) %>%
+  arrange(- n)
+```
+
+Which method guesses most parameters correctly:
+```{r}
+average_best %>%
+  filter(metric %in% c('perc_correct_params')) %>%
+  group_by(method) %>%
+  distinct(metric, method) %>%
+  summarise(n = n()) %>%
+  arrange(- n)
+```
+
+Ranking similar to how it works for the non-averaged version.
+I rank the methods based on their performance for each metric (best ranks 1, second best ranks 2, etc.). Then I add up all the scores, the one with the lowest score performs the best overall.
+To make this a fair comparison, I use 4 error metrics for both directions and density. Methods that do really well on just the burn percentage are now at a distadvantage because there is only 1 metric for that.
+```{r}
+methods_averaged_ranking <- tibble(methods = character(),
+                                   rank_score = numeric())
+
+for(i in 1:length(metrics_list)){
+  # if higher = better for metric of interest
+  if(metrics_opt[i] == 'max'){
+    # retrieve relevant data frame
+    add_ranks <- errors_average %>%
+      select(c('method', 'ticks_included', metrics_list[i])) %>%
+      ungroup() %>%
+      # add ranks by descending order of metric
+      mutate(rank = dense_rank(desc(get(metrics_list[i])))) %>%
+      # keep method and rank columns
+      select(c('method', 'rank')) %>%
+      # remove duplicates of same method with same rank
+      distinct(method, rank)
+    # if lower = better for metric of interest
+  } else{
+    add_ranks <- errors_average %>%
+      select(c('method', 'ticks_included', metrics_list[i])) %>%
+      ungroup() %>%
+      # add ranks by descending order of metric
+      mutate(rank = dense_rank(get(metrics_list[i]))) %>%
+      # keep method and rank columns
+      select(c('method', 'rank')) %>%
+      # remove duplicates of same method with same rank
+      distinct(method, rank)
+  }
+  
+  # add ranks to data frame
+  methods_averaged_ranking <- methods_averaged_ranking %>%
+    bind_rows(add_ranks)
+}
+
+methods_averaged_ranking <- methods_averaged_ranking %>%
+  # per method
+  group_by(method) %>%
+  # add the ranks over all the metrics together
+  summarise(rank_score = sum(rank)) %>%
+  # display in ascending order (lower score = better)
+  arrange(rank_score)
+
+View(methods_averaged_ranking)
+```
+So according to this measure, the GAM with cubic smoothing splines performs best, followed by the Regression and Classification Random Forest.
+
+# Conclusion
