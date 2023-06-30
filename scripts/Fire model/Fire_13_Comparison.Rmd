@@ -410,3 +410,7 @@ methods_ranking <- methods_ranking %>%
   arrange(rank_score)
 ```
 So according to this measure, the GAM with cubic smoothing splines performs best, followed by the Latin Hypercube Sampling.
+
+
+
+Think about: there's probably methods for which all sample sizes and ticks yes/no perform better than another method. Maybe that should be reflected somewhow as well?
