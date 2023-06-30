@@ -1,0 +1,331 @@
+---
+title: "Fire_10_Calibration_ABC"
+output: pdf_document
+date: "2023-04-26"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Preliminaries
+Clear working directory & set random seed:
+```{r}
+rm(list = ls(all = TRUE))
+
+set.seed(42)
+```
+
+Packages used:
+```{r}
+# for importing / working with tidy data
+library(tidyverse)
+
+# for ggplot
+library(directlabels)
+library(patchwork)
+library(ggbeeswarm)
+
+# for the ABC
+library(abc)
+```
+
+Source files for error computation and plotting functions:
+```{r}
+source('scripts/Fire model/Fire_ErrorFunctions.R')
+```
+
+Read in the data:
+```{r}
+# complete output data
+fire_output <- read_csv('data/raw/fire_output.csv')
+
+# training data
+fire_train <- read_csv(
+  'data/processed/fire_train.csv')
+fire_train$directions <- as.factor(fire_train$directions)
+
+# test data
+fire_test <- read_csv(
+  'data/processed/fire_test.csv')
+fire_test$directions <- as.factor(fire_test$directions)
+```
+
+Random samples:
+5, 10, 20, 30, 40, 50, 60, 70, and 80 $%$ of the total parameter space.
+```{r}
+N <- nrow(fire_output)
+# range of (training) sample sizes to work with
+n <- c(0.05 * N, 0.1 * N, 0.2 * N, 0.3 * N, 0.4 * N, 0.5 * N,
+       0.6 * N, 0.7 * N, nrow(fire_train))
+```
+
+# Fitting
+ALL 3 METHODS GIVE THE SAME RESULTS
+
+Try fitting something with simple rejection ABC
+```{r}
+target <- cbind(fire_test$burn_percentage[1], fire_train$ticks[1])
+colnames(target) <- c('burn_percentage', 'ticks')
+
+params <- cbind(fire_train$density, fire_train$directions)
+colnames(params) <- c('density', 'directions')
+
+sumstat <- cbind(fire_train$burn_percentage, fire_train$ticks)
+colnames(sumstat) <- c('burn_percentage', 'ticks')
+
+fit_rejection <- abc(target = target,
+                     param = params,
+                     sumstat = sumstat,
+                     tol = 0.1, method = 'rejection')
+
+# retrieve mean density and median directions
+density_estimate_rejection <- mean(fit_rejection$unadj.values[,1])
+directions_estimate_rejection <- median(fit_rejection$unadj.values[,2])
+
+# here I can now also include CIs because I have a distribution to work with (at least for the density estimate)
+
+# there's also options for cross-validation in the package
+cv.rej <- cv4abc(param = params, sumstat = sumstat,
+                 tols = c(0.1, 0.2, 0.3), nval = 5,
+                 method = 'rejection')
+
+cv.rej.choice <- as.data.frame(summary(cv.rej))
+
+colnames(cv.rej.choice) <- c('tolerance', 'variable', 'error')
+
+tolerance_choice <- as_tibble(cv.rej.choice) %>%
+  spread(variable, error) %>%
+  mutate(sum = density + directions) %>%
+  filter(density + directions == min(sum)) %>%
+  dplyr::select(tolerance)
+```
+
+Try fitting something with local-linear regression adjusted ABC
+```{r}
+fit_loclinear <- abc(target = target,
+                     param = params,
+                     sumstat = sumstat,
+                     tol = 0.1, method = 'loclinear',
+                     transf = c('log', 'none'))
+# check if I should be doing transformations here
+
+# retrieve mean density and median directions
+density_estimate_loclinear <- mean(fit_loclinear$unadj.values[,1])
+directions_estimate_loclinear <- median(fit_loclinear$unadj.values[,2])
+```
+
+Try fitting something with neural network ABC
+```{r}
+fit_neuralnet <- abc(target = target,
+                     param = params,
+                     sumstat = sumstat,
+                     tol = 0.1, method = 'neuralnet',
+                     transf = c('log', 'none'))
+# check if I should be doing transformations here
+
+# retrieve mean density and median directions
+density_estimate_neuralnet <- mean(fit_neuralnet$unadj.values[,1])
+directions_estimate_neuralnet <- median(fit_neuralnet$unadj.values[,2])
+```
+
+For all data:
+THIS ISN'T WORKING JUST YET.
+
+Check if I'm getting the confidence intervals in the right way
+```{r}
+ABCFitting <- function(ticks = FALSE, abctype = 'rejection'){
+  # table to store all output
+  length_tib <- sum(nrow(fire_test) * length(n))
+  abc_results <- tibble(direction_true = numeric(length_tib),
+                              direction_pred = numeric(length_tib),
+                              density_true = numeric(length_tib),
+                              density_pred = numeric(length_tib),
+                              density_pred_lwr = numeric(length_tib),
+                              density_pred_upr = numeric(length_tib),
+                              burn_true = numeric(length_tib),
+                              burn_pred = numeric(length_tib),
+                              n = numeric(length_tib),
+                              ticks_included = numeric(length_tib))
+  # vector to store mean density in each training sample
+  # (to calculate point prediction performance later on)
+  density_means <- numeric(length(n))
+  
+  # for each sample size
+  for(i in 1:length(n)){
+    # sample training set
+    ind_sample <- sample(1:nrow(fire_train), size = n[i])
+    fire_train_sub <- fire_train[ind_sample, ]
+    # calculate and save mean density in training set
+    density_means[i] <- mean(fire_train_sub$density)
+    # set up the training data
+    params <- cbind(fire_train_sub$density, fire_train_sub$directions)
+    colnames(params) <- c('density', 'directions')
+    
+    if(ticks == TRUE){
+      # set up the rest of the training data
+      sumstat <- cbind(fire_train_sub$burn_percentage,
+                       fire_train_sub$ticks)
+      colnames(sumstat) <- c('burn_percentage', 'ticks')
+
+      # then determine which tolerance value we should use
+      # 5-fold cross-validation with 3 different tolerance values
+      cv.rej <- cv4abc(param = params, sumstat = sumstat,
+                 tols = c(0.1, 0.2, 0.3), nval = 5,
+                 method = 'rejection')
+      
+      # find the tolerance value that yields the lowest prediction
+      # error
+      cv.rej.choice <- as.data.frame(summary(cv.rej))
+      colnames(cv.rej.choice) <- c('tolerance', 'variable', 'error')
+      tolerance_choice <- as_tibble(cv.rej.choice) %>%
+        spread(variable, error) %>%
+        # sum prediction error over density and directions
+        mutate(sum = density + directions) %>%
+        # see which is lowest
+        filter(density + directions == min(sum)) %>%
+        # retrieve tolerance value that produced lowest error
+        dplyr::select(tolerance)
+
+      # for each case in the test data
+      for(j in 1:nrow(fire_test)){
+        # prepare test data
+        target <- cbind(fire_test$burn_percentage[j],
+                        fire_test$ticks[j])
+        colnames(target) <- c('burn_percentage', 'ticks')
+        
+        # fit ABC
+        fit <- abc(target = target,
+                   param = params,
+                   sumstat = sumstat,
+                   tol = as.integer(tolerance_choice),
+                   method = abctype)
+        
+        # retrieve mean and median directions
+        density_estimate <- mean(fit_rejection$unadj.values[,1])
+        directions_estimate <- median(fit_rejection$unadj.values[,2])
+        # correct directions estimate to 4 / 8 instead of 1 / 2
+        if(directions_estimate == 1){
+          directions_estimate <- 4
+          }else{
+            directions_estimate <- 8
+          }
+        
+        # retrieve lower and upper interval for density
+        # 95% interval
+        density_lower <- quantile(fit_rejection$unadj.values[,1],
+                                  prob = 0.025)
+        density_upper <- quantile(fit_rejection$unadj.values[,2],
+                                  prob = 0.975)
+        
+        # add to data frame
+        add_dat <- tibble(direction_true = fire_test$directions[j],
+                          direction_pred = directions_estimate,
+                          density_true = fire_test$density[j],
+                          density_pred = density_estimate,
+                          density_pred_lwr = density_lower,
+                          density_pred_upr = density_upper,
+                          burn_true = fire_test$burn_percentage[j],
+                          burn_pred = NA,
+                          n = n[i],
+                          ticks_included = 'yes')
+      }
+        
+    } else{
+      # set up the rest of the training data
+      sumstat <- fire_train_sub$burn_percentage
+      colnames(sumstat) <- 'burn_percentage'
+
+      # then determine which tolerance value we should use
+      # 5-fold cross-validation with 3 different tolerance values
+      cv.rej <- cv4abc(param = params, sumstat = sumstat,
+                 tols = c(0.1, 0.2, 0.3), nval = 5,
+                 method = 'rejection')
+      
+      # find the tolerance value that yields the lowest prediction
+      # error
+      cv.rej.choice <- as.data.frame(summary(cv.rej))
+      colnames(cv.rej.choice) <- c('tolerance', 'variable', 'error')
+      tolerance_choice <- as_tibble(cv.rej.choice) %>%
+        spread(variable, error) %>%
+        # sum prediction error over density and directions
+        mutate(sum = density + directions) %>%
+        # see which is lowest
+        filter(density + directions == min(sum)) %>%
+        # retrieve tolerance value that produced lowest error
+        dplyr::select(tolerance)
+
+      # for each case in the test data
+      for(j in 1:nrow(fire_test)){
+        # prepare test data
+        target <- fire_test$burn_percentage[j]
+        colnames(target) <- 'burn_percentage'
+        
+        # fit ABC
+        fit <- abc(target = target,
+                   param = params,
+                   sumstat = sumstat,
+                   tol = as.integer(tolerance_choice),
+                   method = abctype)
+        
+        # retrieve mean and median directions
+        density_estimate <- mean(fit_rejection$unadj.values[,1])
+        directions_estimate <- median(fit_rejection$unadj.values[,2])
+        # correct directions estimate to 4 / 8 instead of 1 / 2
+        if(directions_estimate == 1){
+          directions_estimate <- 4
+          }else{
+            directions_estimate <- 8
+          }
+        
+        # retrieve lower and upper interval for density
+        # 95% interval
+        density_lower <- quantile(fit_rejection$unadj.values[,1],
+                                  prob = 0.025)
+        density_upper <- quantile(fit_rejection$unadj.values[,2],
+                                  prob = 0.975)
+        
+        # add to data frame
+        add_dat <- tibble(direction_true = fire_test$directions[j],
+                          direction_pred = directions_estimate,
+                          density_true = fire_test$density[j],
+                          density_pred = density_estimate,
+                          density_pred_lwr = density_lower,
+                          density_pred_upr = density_upper,
+                          burn_true = fire_test$burn_percentage[j],
+                          burn_pred = NA,
+                          n = n[i],
+                          ticks_included = 'no')
+      }
+    }
+    
+    # for each instance of the test data
+    for(k in 1:nrow(fire_test)){
+      # find an instance in the training data that matches the directions
+      # and density
+      ind <- which(fire_train$density == round(predict_lm_density[j,1])
+                   & fire_train$directions ==
+                     predict_glm_directions[j])
+      if(length(ind) > 1){
+        ind <- sample(ind, size = 1)
+      }
+      # find predicted burn percentage based on training data
+      add_dat$burn_pred <- fire_train$burn_percentage[ind]
+    }
+  
+  # correct format of direction_true variable
+  add_dat <- add_dat %>%
+    mutate(direction_true = replace(direction_true,
+                                    direction_true == 1, 4),
+           direction_true = replace(direction_true,
+                                    direction_true == 2, 8))
+  
+  # add data to data frame
+  abc_results <- abc_results %>%
+    merge(add_dat)
+  
+  }
+  # return table with results anddensity means, and fitted regression values
+  return(list(abc_results, density_means))
+}
+```

@@ -15,6 +15,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
 import math
+import statistics
 sns.set_style('white')
 sns.set_context('talk')
 
@@ -25,9 +26,11 @@ Import R packages:
 ```{r}
 # for importing / working with tidy data
 library(tidyverse)
+# for sensitivity analysis
+library(sensitivity)
 ```
 
-# Running all possible parameter combinations
+# Set up model
 Link to and start the Fire model:
 ```{python}
 netlogo = pyNetLogo.NetLogoLink(gui = True) # start netlogo
@@ -36,51 +39,209 @@ netlogo.load_model(r"C:\Users\Femke Keij\OneDrive\Thesis\R projects\LU thesis lo
 # open model
 ```
 
-To determine how often the model should be run, I look at the coefficient of variation: $standard deviation / mean * 100$. At the number of repetitions where this remains approximately the same, we can assume convergence [LU40]. This is only true for linear relationships, which we don't have here, but it will give an indication of how often to run the model:
-```{python}
-runs = [5, 10, 20, 30]
-densities = [5, 10, 25, 50, 75, 100]
-directions = [4, 8]
-CVs = pd.DataFrame(columns = ['runs', 'CV'])
+# Determine number of runs
+Here I'm investigating 2 different ways of determining how often each parameter combination should be run to account for the stochasticity.
+I think I'll be including both in each model setup. I can do both and see if they agree or disagree with each other. If the mean convergence comes up with an incredibly high number, but the CV comes up with a much lower number that is a good indication that maybe the CV isn't very accurate for that model and I should use more simulations than that indicates.
 
-for k in runs:
-  # set up data frame to store results
-  perc_burn_df = pd.DataFrame(columns = ['perc_burn'])
-  for i in directions:
-    # set number of directions
-    direction = str(i)
-    netlogo.command(''.join(['set directions ', direction]))
-    for j in densities:
-      # set density
-      density = str(j)
-      netlogo.command(''.join(['set density ', density]))
+The setup consists of 3 levels of the density parameter (low, medium, high) and the 2 levels of the directions parameter (4, 8) for a total of 6 parameter combinations.
+We look at convergence for each of the 6 parameter combinations separately.
+```{python}
+densities = [5, 50, 95]
+directions = [4, 8]
+```
+
+1) Run until mean convergence up to 0.001.
+This is potentially very computationally intensive, but it may work better for non-linear models than the CV does. Therefore I wanted to try it for at least 1 model.
+```{python}
+# data frame to store results
+means = pd.DataFrame(columns = ['density', 'directions', 'run', 'mean'])
+# add empty row to start
+means = means.append({'density': 0, 'directions': 0, 'run': 0, 'perc_burn': -100, 'mean': -100}, ignore_index = True)
+
+# set counter
+count = 0
+
+for i in directions:
+  # set directions
+  direction = str(i)
+  netlogo.command(''.join(['set directions ', direction]))
+  for j in densities:
+    # reset number of runs
+    runs = 1
+    # set direction
+    density = str(j)
+    netlogo.command(''.join(['set density ', density]))
+    # set a random seed
+    netlogo.command('clean')
+    # set up model
+    netlogo.command('setup')
+    # initial run
+    netlogo.command('repeat 10000 [go]')
+    # record number of burned trees and number of initial trees
+    initial = netlogo.report('initial-trees')
+    burned = netlogo.report('burned-trees')
+    # calculate % burned
+    perc_burn = burned / initial * 100
+    # add to dataframe
+    means = means.append({'density': density, 'directions': direction, 'run': runs, 'perc_burn': perc_burn, 'mean': perc_burn}, ignore_index = True)
+    # add count
+    count = count + 1
+    # repeat runs until mean burn percentage at end doesn't
+    # change anymore (up to threshold 0.01)
+    while abs(means['mean'][count - 1] - means['mean'][count]) > 0.01:
+      # add to count
+      count = count + 1
+      # add to runs
+      runs = runs + 1
+      # set up model
+      netlogo.command('setup')
+      # run model
+      netlogo.command('repeat 10000 [go]')
+      # record number of burned trees and number of initial trees
+      initial = netlogo.report('initial-trees')
+      burned = netlogo.report('burned-trees')
+      # calculate % burned
+      perc_burn = burned / initial * 100
+      # compute new mean % burned
+      df = means[(means['density'] == density) & (means['directions'] == direction)]
+      new_mean = ((df['perc_burn'].mean() * len(df)) + perc_burn) / (len(df) + 1)
+      # add to dataframe
+      means = means.append({'density': density, 'directions': direction, 'run': runs, 'perc_burn': perc_burn, 'mean': new_mean}, ignore_index = True)
+      
+means
+```
+Most parameter combinations require just 2 - 6 runs for the mean to stabilize. However, there are some in the middle of the range that require 10 runs.
+
+2) Run until coefficient of variation (CV) stabilizes.
+To determine how often the model should be run, I look at the coefficient of variation: $c_{\upsilon} = \sigma / \mu$. At the number of repetitions where this remains approximately the same, we can assume convergence [LU40, LU47]. This is only true for linear relationships, which we don't have here, but it will give an indication of how often to run the model:
+```{python}
+runs = [3, 5, 7, 10, 20, 30]
+CVs = pd.DataFrame(columns = ['density', 'directions', 'runs', 'CV'])
+
+for i in directions:
+  # set number of directions
+  direction = str(i)
+  netlogo.command(''.join(['set directions ', direction]))
+  for j in densities:
+    # set density
+    density = str(j)
+    netlogo.command(''.join(['set density ', density]))
+    # set random seed
+    netlogo.command('clean')
+    # set up data frame to store results
+    perc_burn_df = pd.DataFrame(columns = ['perc_burn'])
+    for k in runs:
       for x in range(0, k):
-        # set up
+        # setup
         netlogo.command('setup')
         # execute for 10,000 ticks or until the model is done
         netlogo.command('repeat 10000 [go]')
-        # record number of burned trees and number of initial trees
+        # record number of burned trees and 
+        # number of initial trees
         initial = netlogo.report('initial-trees')
         burned = netlogo.report('burned-trees')
         # calculate % burned
         perc_burn = burned / initial * 100
         # store
         perc_burn_df = perc_burn_df.append({'perc_burn': perc_burn}, ignore_index = True)
-      
-  # calculate CV
-  # if standard deviation = 0, set CV to 0
-  CV_new = perc_burn_df.mean() / perc_burn_df.std() * 100
-  if math.isinf(CV_new):
-    CV_new = 0
-  else:
-    CV_new = int(CV_new)
-  CVs = CVs.append({'runs': k, 'CV' : CV_new}, ignore_index = True)
-  
+    
+      # compute CV
+      CV_new = perc_burn_df.mean() / perc_burn_df.std()
+      # if standard deviation = 0, set CV to 0
+      if math.isinf(CV_new):
+        CV_new = 0
+      else:
+        CV_new = int(CV_new)
+      CVs = CVs.append({'density': density, 'directions': direction, 'runs': k, 'CV' : CV_new}, ignore_index = True)
+
 # inspect coefficients of variation
 CVs
 ```
 So 10 runs is sufficient.
 
+# Sensitivity analysis
+Using Morris' screening
+```{r}
+mo <- morris(model = NULL, factors = 3,
+             r = 4, design = list(type = 'oat', levels = 5,
+                                  grid.jump = 3),
+             binf = c(1, 0, 0),
+             bsup = c(99, 1, 1))
+
+samples <- as_tibble(mo$X)
+
+samples <- samples %>%
+  mutate(directions = ifelse(X2 > X3, 4, 8)) %>%
+  select(c('X1', 'directions')) %>%
+  distinct(X1, directions)
+```
+Now run the model with those parameter combinations.
+
+Local sensitivity:
+Vary density between 20 and 80% while keeping directions to 4. Vary directions from 4 to 8 while keeping density at 50%.
+
+```{python}
+densities = [20, 30, 40, 50, 60, 70, 80]
+
+# data frame to store results
+sensitivity_results = pd.DataFrame(columns = ['density', 'directions', 'burn_percentage'])
+
+# first for the densities
+netlogo.command('set directions 4')
+
+for i in densities:
+  density = str(i)
+  netlogo.command(''.join(['set density ', density]))
+  # place to store intermediate results
+  sensitivity_temp = list()
+  for j in range(0, 10):
+    # set up
+    netlogo.command('setup')
+    # execute for 10,000 ticks or until the model is done
+    netlogo.command('repeat 10000 [go]')
+    # record number of burned trees and number of initial trees
+    initial = netlogo.report('initial-trees')
+    burned = netlogo.report('burned-trees')
+    # calculate % burned
+    perc_burn = burned / initial * 100
+    # store
+    sensitivity_temp.append(perc_burn, ignore.index = True)
+  # store average burn percentage as well as density and directions
+  mean_burn = statistics.mean(sensitivity_temp)
+  sensitivity_results = sensitivity_results.append({'perc_burn': mean_burn, 'density': i, 'directions': 4})
+
+
+# then for the directions
+netlogo.command('set density 50')
+directions = [4, 8]
+
+for i in directions:
+  direction = str(i)
+  netlogo.command(''.join(['set directions ', direction]))
+  # place to store intermediate results
+  sensitivity_temp = list()
+  for j in range(0, 10):
+    # set up
+    netlogo.command('setup')
+    # execute for 10,000 ticks or until the model is done
+    netlogo.command('repeat 10000 [go]')
+    # record number of burned trees and number of initial trees
+    initial = netlogo.report('initial-trees')
+    burned = netlogo.report('burned-trees')
+    # calculate % burned
+    perc_burn = burned / initial * 100
+    # store
+    sensitivity_temp = sensitivity_temp.append(perc_burn)
+  # store average burn percentage as well as density and directions
+  mean_burn = statistics.mean(sensitivity_temp)
+  sensitivity_results = sensitivity_results.append({'perc_burn': mean_burn, 'density': 50, 'directions': i})
+  
+  
+sensitivity_results
+```
+
+# Sampling parameter space
+Because this model is not very large, I can simply sample the entire parameter space.
 Set up the model and run 10 times for each density, record the percentage of trees burned:
 ```{python}
 densities = list(range(1,100))

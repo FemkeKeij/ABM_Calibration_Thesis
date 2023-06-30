@@ -62,7 +62,6 @@ n <- c(0.05 * N, 0.1 * N, 0.2 * N, 0.3 * N, 0.4 * N, 0.5 * N,
 ```
 
 # Fitting
-
 ```{r}
 PLSfitting <- function(ticks = FALSE){
   # table to store all output
@@ -221,7 +220,7 @@ write_csv(pls_errors,
 ```{r}
 # pls_results <- read_csv('data/processed/fire_partialleastsquares_results.csv')
 
-# pls_errors <- read_csv('data/processed/fire_partialleastsqsuares_errors.csv')
+# pls_errors <- read_csv('data/processed/fire_partialleastsquares_errors.csv')
 ```
 
 ## Errors

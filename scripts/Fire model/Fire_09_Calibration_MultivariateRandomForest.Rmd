@@ -1,0 +1,313 @@
+---
+title: "Fire_09_MultivariateRandomForest"
+author: "Femke Keij S2647168"
+date: "2023-03-21"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Preliminaries
+Clear working directory & set random seed:
+```{r}
+rm(list = ls(all = TRUE))
+
+set.seed(42)
+```
+
+Packages used:
+```{r}
+# for importing / working with tidy data
+library(tidyverse)
+
+# for ggplot
+library(directlabels)
+library(patchwork)
+library(ggbeeswarm)
+
+# for multivariate random forest
+library(MultivariateRandomForest)
+```
+
+Source files for error computation and plotting functions:
+```{r}
+source('scripts/Fire model/Fire_ErrorFunctions.R')
+```
+
+Read in the data:
+```{r}
+# complete output data
+fire_output <- read_csv('data/raw/fire_output.csv')
+
+# training data
+fire_train <- read_csv(
+  'data/processed/fire_train.csv')
+fire_train$directions <- as.factor(fire_train$directions)
+
+# test data
+fire_test <- read_csv(
+  'data/processed/fire_test.csv')
+fire_test$directions <- as.factor(fire_test$directions)
+```
+
+Random samples:
+5, 10, 20, 30, 40, 50, 60, 70, and 80 $%$ of the total parameter space.
+```{r}
+N <- nrow(fire_output)
+# range of (training) sample sizes to work with
+n <- c(0.05 * N, 0.1 * N, 0.2 * N, 0.3 * N, 0.4 * N, 0.5 * N,
+       0.6 * N, 0.7 * N, nrow(fire_train))
+```
+
+# Fitting
+```{r}
+testX <- cbind(fire_test$burn_percentage, fire_test$ticks)
+
+Y <- cbind(fire_train$density, fire_train$directions)
+colnames(Y) <- c('density', 'directions')
+Y <- as.data.frame(Y) %>%
+  mutate(true_four = ifelse(directions == 1, 1, 0),
+         true_eight = ifelse(directions == 2, 1, 0)) %>%
+  select(c('density', 'true_four'))
+Y <- as.matrix(Y)
+X <- cbind(fire_train$burn_percentage, fire_train$ticks)
+
+fit20 <- build_forest_predict(trainX = X, trainY = Y, n_tree = 20,
+                     m_feature = 1, min_leaf = 5, testX = testX)
+```
+
+
+```{r, eval = FALSE}
+Y <- cbind(fire_train$density, fire_train$directions)
+colnames(Y) <- c('density', 'directions')
+Y <- as.data.frame(Y) %>%
+  mutate(true_four = ifelse(directions == 1, 1, 0),
+         true_eight = ifelse(directions == 2, 1, 0)) %>%
+  select(c('density', 'true_four'))
+Y <- as.matrix(Y)
+
+X <- cbind(fire_train$burn_percentage, rep(0, nrow(fire_train)))
+testX <- cbind(fire_test$burn_percentage, rep(0, nrow(fire_test)))
+# fit random forest and predict test data
+pred <- build_forest_predict(trainX = X, trainY = Y, n_tree = 20,
+                             m_feature = 1, min_leaf = 5, testX = testX)
+```
+
+```{r}
+MRFFitting <- function(ticks = FALSE){
+  # table to store all output
+  length_tib <- sum(nrow(fire_test) * length(n))
+  mrf_results <- tibble(direction_true = numeric(length_tib),
+                              direction_pred = numeric(length_tib),
+                              density_true = numeric(length_tib),
+                              density_pred = numeric(length_tib),
+                              burn_true = numeric(length_tib),
+                              burn_pred = numeric(length_tib),
+                              n = numeric(length_tib),
+                              ticks_included = numeric(length_tib))
+  # vector to store mean density in each training sample
+  # (to calculate point prediction performance later on)
+  density_means <- numeric(length(n))
+
+  count <- 1
+  
+  # for each sample size
+  for(i in 1:length(n)){
+    # sample training set
+    ind_sample <- sample(1:nrow(fire_train), size = n[i])
+    fire_train_sub <- fire_train[ind_sample, ]
+    # calculate and save mean density in training set
+    density_means[i] <- mean(fire_train_sub$density)
+    
+    # set up output data
+    Y <- cbind(fire_train_sub$density, fire_train_sub$directions)
+    colnames(Y) <- c('density', 'directions')
+    Y <- as.data.frame(Y) %>%
+      mutate(true_four = ifelse(directions == 1, 1, 0),
+             true_eight = ifelse(directions == 2, 1, 0)) %>%
+      select(c('density', 'true_four'))
+    Y <- as.matrix(Y)
+    
+    if(ticks == TRUE){
+      # multivariate random forest to predict density and direction 
+      # by ticks and burn percentage
+      # set up predictor and test variables
+      X <- cbind(fire_train_sub$burn_percentage, fire_train_sub$ticks)
+      testX <- cbind(fire_test$burn_percentage, fire_test$ticks)
+      # fit random forest and predict test data
+      pred <- build_forest_predict(trainX = X, trainY = Y, n_tree = 20,
+                     m_feature = 1, min_leaf = 5, testX = testX)
+    } else{
+      # multivariate random forest to predict density and direction 
+      # by burn percentage
+      # set up predictor and test variables
+      X <- cbind(fire_train_sub$burn_percentage, rep(0, nrow(fire_train_sub)))
+      testX <- cbind(fire_test$burn_percentage, rep(0, nrow(fire_test)))
+      # fit random forest and predict test data
+      pred <- build_forest_predict(trainX = X, trainY = Y, n_tree = 20,
+                     m_feature = 1, min_leaf = 5, testX = testX)
+    }
+    # correct the predicted directions from probabilities to '4' and '8'
+    # to match test data
+    for(k in 1:nrow(fire_test)){
+      if(pred[,2][k] < 0.5){
+        pred[,2][k] <- 4
+      } else{
+        pred[,2][k] <- 8
+      }
+    }
+    
+    # for each instance of the test data
+    for(j in 1:nrow(fire_test)){
+      # find an instance in the training data that matches the directions
+      # and density
+      ind <- which(fire_train$density == round(pred[j,1]) &
+                     fire_train$directions ==
+                     pred[j,2])
+      if(length(ind) > 1){
+        ind <- sample(ind, size = 1)
+      }
+      # find predicted burn percentage based on training data
+      burn_pred <- fire_train$burn_percentage[ind]
+      
+      # store all results in table
+      mrf_results$direction_true[count] <- fire_test$directions[j]
+      mrf_results$direction_pred[count] <-
+        pred[j, 2]
+      mrf_results$density_true[count] <- fire_test$density[j]
+      mrf_results$density_pred[count] <- pred[j,1]
+      mrf_results$burn_true[count] <- fire_test$burn_percentage[j]
+      mrf_results$burn_pred[count] <- burn_pred
+      mrf_results$n[count] <- n[i]
+      mrf_results$ticks_included[count] <- if(ticks){'yes'}else{'no'}
+      
+      count <- count + 1
+    }
+    
+    print(c('finished running sample size', n[i]))
+  }
+  
+  # correct format of direction_true variable
+  mrf_results %>%
+    mutate(direction_true = replace(direction_true, direction_true == 1, 4),
+         direction_true = replace(direction_true, direction_true == 2, 8)) ->
+    mrf_results
+  
+  # return table with results, density means, and fitted regression values
+  return(list(mrf_results, density_means))
+}
+```
+
+The one without ticks isn't currently working.
+```{r}
+# fit regressions with ticks
+mrf_results_ticks <- MRFFitting(ticks = TRUE)
+density_means_ticks <- mrf_results_ticks[[2]]
+mrf_results_ticks <- mrf_results_ticks[[1]]
+
+# fit regressions without ticks
+mrf_results_noticks <- MRFFitting(ticks = FALSE)
+density_means_noticks <- mrf_results_noticks[[2]]
+mrf_results_noticks <- mrf_results_noticks[[1]]
+```
+
+```{r}
+# run error calculations
+mrf_errors_ticks <- ComputeErrors(mrf_results_ticks,
+                                  ticks = TRUE,
+                                  density_means = density_means_ticks,
+                                  pred_int_included = FALSE)
+mrf_errors_noticks <- ComputeErrors(mrf_results_noticks,
+                                    ticks = FALSE,
+                                    density_means = density_means_noticks,
+                                    pred_int_included = FALSE)
+```
+
+Merge results
+```{r}
+mrf_results <- rbind(mrf_results_noticks,
+                     mrf_results_ticks)
+write_csv(mrf_results,
+          'data/processed/fire_MultivariateRandomForest_results.csv')
+
+mrf_errors <- rbind(mrf_errors_noticks, mrf_errors_ticks)
+write_csv(mrf_errors,
+          'data/processed/fire_MultivariateRandomForest_errors.csv')
+```
+
+# Plots
+```{r}
+# mrf_results <- read_csv('data/processed/fire_MultivariateRandomForest_results.csv')
+
+# mrf_errors <- read_csv('data/processed/fire_MultivariateRandomForest_errors.csv')
+```
+
+## Errors
+Fix results and errors data frames:
+```{r}
+mrf_results <- mrf_results %>%
+  mutate(n = factor(n),
+         direction_true = factor(direction_true),
+         direction_pred = factor(direction_pred),
+         direction_correct = (direction_pred == direction_true))
+
+mrf_errors <- mrf_errors %>%
+  mutate(n = factor(n))
+```
+### Predicted vs. true
+Predicted vs. true for density, directions, and burn percentage
+```{r}
+p1 <- PlotPredTrueDensity(mrf_results, n = 1584)
+p2 <- PlotPredTrueDirection(mrf_results, n = 1584)
+p3 <- PlotPredTrueBurn(mrf_results, n = 1584)
+
+p1 / p2 / p3
+```
+Predicted vs. true density (largest sample size only):
+```{r}
+PlotPredTrueDensity(mrf_results, n = 1584)
+
+ggsave('figures/fire_MRF_predtrue_density.pdf')
+```
+Confusion matrix for predicted vs. true directions:
+```{r}
+PlotPredTrueDirection(mrf_results, n = 1584)
+
+ggsave('figures/fire_MRF_predtrue_direction.pdf')
+```
+Predicted vs. true burn percentage (largest sample size only):
+```{r}
+PlotPredTrueBurn(mrf_results, n = 1584)
+
+ggsave('figures/fire_MRF_predtrue_burn.pdf')
+```
+### Parameters
+% correctly predicted parameters (density & directions):
+```{r}
+PlotPercCorrectParams(mrf_errors, n_plot = c(99, 792, 1584))
+
+ggsave('figures/fire_MRF_perc_correct.pdf')
+```
+RMSE, NRMSE, point prediction performance, and coverage for density parameter:
+```{r}
+PlotErrorsDensity(mrf_errors, n_plot = c(99, 792, 1584))
+
+ggsave('figures/fire_MRF_density_metrics.pdf')
+```
+F1, kappa score, and MCC for directions:
+```{r}
+PlotErrorsDirections(mrf_errors, n_plot = c(99, 792, 1584))
+
+ggsave('figures/fire_MRF_directions_metrics.pdf')
+```
+### Outcome variable
+RMSE for burn percentage:
+```{r}
+PlotRMSEOut(mrf_errors, n_plot = c(99, 792, 1584))
+
+ggsave('figures/fire_MRF_RMSE_burn.pdf')
+```
+
+## Model fit

@@ -15,6 +15,8 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
 import math
+import statistics
+import itertools
 sns.set_style('white')
 sns.set_context('talk')
 
@@ -25,6 +27,8 @@ Import R packages:
 ```{r}
 # for importing / working with tidy data
 library(tidyverse)
+# for arranging plots
+library(patchwork)
 ```
 
 Set seed:
@@ -39,115 +43,244 @@ netlogo = pyNetLogo.NetLogoLink(gui = True) # start netlogo
 
 netlogo.load_model(r"C:\Users\Femke Keij\OneDrive\Thesis\R projects\LU thesis local\models\WolfSheep_myversion.nlogo")
 # open model
-```
-
-To determine how often the model should be run, I look at the coefficient of variation: $standard deviation / mean * 100$. At the number of repetitions where this remains approximately the same, we can assume convergence [LU40]. This is only true for linear relationships, which we don't have here, but it will give an indication of how often to run the model. I only use a few parameter settings to cut down on the run time, and I also don't include the very extremes of the parameter settings since those tend to take longer to run.
-```{r}
-initial_number_sheep <- c(100, 230)
-initial_number_wolves <- c(100, 230)
-sheep_gain_from_food <- c(10, 25, 40)
-wolf_gain_from_food <- c(25, 50, 80)
-sheep_reproduce <- c(10, 20)
-wolf_reproduce <- c(10, 20)
-grass_regrowth <- c(50, 100)
-
-part_comb <- expand.grid(initial_number_sheep, initial_number_wolves,
-            sheep_gain_from_food, wolf_gain_from_food,
-            sheep_reproduce, wolf_reproduce,
-            grass_regrowth)
-colnames(part_comb) <- c('initial_number_sheep', 'initial_number_wolves',
-                        'sheep_gain_from_food', 'wolf_gain_from_food',
-                        'sheep_reproduce', 'wolf_reproduce',
-                        'grass_regrowth')
-
-write_csv(part_comb, 'data/processed/WolfSheep_CVparams.csv')
-```
-
-```{python}
-all_comb = pd.read_csv('data/processed/WolfSheep_CVparams.csv')
 
 # set to correct model version
 netlogo.command('set model-version "sheep-wolves-grass"')
+```
+
+# Determine number of runs
+Instead of combining a low, mid, and high value for each parameter, I use only the 25% and 75% quartile of each range. This brings the number of parameter combinations down from 2187 to 128.
+
+```{python}
+initial_number_sheep = [62, 188]
+initial_number_wolves = [62, 188]
+sheep_gain_from_food = [12, 38]
+wolf_gain_from_food = [25, 72]
+sheep_reproduce = [5, 15]
+wolf_reproduce = [5, 15]
+grass_regrowth = [25, 72]
+
+dictionary = {'initial_number_sheep': [62, 188], 'initial_number_wolves': [62, 188], 'sheep_gain_from_food': [12, 38], 'wolf_gain_from_food': [25, 72], 'sheep_reproduce': [5, 15], 'wolf_reproduce': [5, 15], 'grass_regrowth': [25, 72]}
+
+def expand_grid(data_dict):
+    rows = itertools.product(*data_dict.values())
+    return pd.DataFrame.from_records(rows, columns = data_dict.keys())
+
+param_comb = expand_grid(dictionary)
+```
+
+1) Mean convergence
+```{python}
+# data frame to store results
+means = pd.DataFrame(columns = ['initial_number_sheep', 'initial_number_wolves', 'sheep_gain_from_food', 'wolf_gain_from_food', 'sheep_reproduce', 'wolf_reproduce', 'grass_regrowth', 'run', 'mean_wolves', 'mean_sheep', 'mean_grass', 'wolves', 'sheep', 'grass'])
+# add empty row to start
+means = means.append({'initial_number_sheep': 0, 'initial_number_wolves': 0, 'sheep_gain_from_food': 0, 'wolf_gain_from_food': 0, 'sheep_reproduce': 0, 'wolf_reproduce': 0, 'grass_regrowth': 0, 'run': 0, 'mean_wolves': -100, 'mean_sheep': -100, 'mean_grass': -100, 'sheep': -100, 'wolves': -100, 'grass': -100}, ignore_index = True)
+
+# set counter
+count = 0
 # set random seed
 netlogo.command('clean')
 
-# data frame to store results
-results_df = pd.DataFrame(columns = ['run', 'sheep', 'wolves', 'grass'])
-
-# for each combination of parameters
-for i in range(0, len(all_comb)):
-  # retrieve parameters for run
-  initial_number_sheep = str(all_comb['initial_number_sheep'][i])
-  initial_number_wolves = str(all_comb['initial_number_wolves'][i])
-  sheep_gain_from_food = str(all_comb['sheep_gain_from_food'][i])
-  wolf_gain_from_food = str(all_comb['wolf_gain_from_food'][i])
-  sheep_reproduce = str(all_comb['sheep_reproduce'][i])
-  wolf_reproduce = str(all_comb['wolf_reproduce'][i])
-  grass_regrowth = str(all_comb['grass_regrowth'][i])
-  
+for i in range(0,len(param_comb)):
   # set parameters
+  initial_number_sheep = str(param_comb['initial_number_sheep'][i])
+  initial_number_wolves = str(param_comb['initial_number_wolves'][i])
+  sheep_gain_from_food = str(param_comb['sheep_gain_from_food'][i])
+  wolf_gain_from_food = str(param_comb['wolf_gain_from_food'][i])
+  sheep_reproduce = str(param_comb['sheep_reproduce'][i])
+  wolf_reproduce = str(param_comb['wolf_reproduce'][i])
+  grass_regrowth = str(param_comb['grass_regrowth'][i])
   netlogo.command(''.join(['set initial-number-sheep ', initial_number_sheep]))
   netlogo.command(''.join(['set initial-number-wolves ', initial_number_wolves]))
-  netlogo.command(''.join(['set sheep-gain-from-food ', sheep_gain_from_food]))
-  netlogo.command(''.join(['set wolf-gain-from-food ', wolf_gain_from_food]))
+  netlogo.command(''.join(['set  sheep-gain-from-food ',  sheep_gain_from_food]))
+  netlogo.command(''.join(['set wolf-gain-from-food ',  wolf_gain_from_food]))
   netlogo.command(''.join(['set sheep-reproduce ', sheep_reproduce]))
   netlogo.command(''.join(['set wolf-reproduce ', wolf_reproduce]))
   netlogo.command(''.join(['set grass-regrowth-time ', grass_regrowth]))
   
-  # run combination 20 times
-  for j in range(1, 21):
-    # set up
+  # reset number of runs
+  runs = 1
+  # set up model
+  netlogo.command('setup')
+  # initial run
+  netlogo.command('repeat 100 [go]')
+  # record number of wolves, sheep, and grass
+  sheep = netlogo.report('count sheep')
+  wolves = netlogo.report('count wolves')
+  grass = netlogo.report('count grass')
+  # add to data frame
+  means = means.append({'initial_number_sheep': initial_number_sheep, 'initial_number_wolves': initial_number_wolves, 'sheep_gain_from_food': sheep_gain_from_food, 'wolf_gain_from_food': wolf_gain_from_food, 'sheep_reproduce': sheep_reproduce, 'wolf_reproduce': wolf_reproduce, 'grass_regrowth': grass_regrowth, 'run': runs, 'mean_wolves': wolves, 'mean_sheep': sheep, 'mean_grass': grass, 'sheep': sheep, 'wolves': wolves, 'grass': grass}, ignore_index = True)
+  # add count
+  count = count + 1
+  # repeat runs until mean wolves, sheep, and grass at 100 ticks
+  # don't change anymore (up to threshold 0.1)
+  while (abs(means['mean_sheep'][count - 1] - means['mean_sheep'][count]) > 0.1) & (abs(means['mean_wolves'][count - 1] - means['mean_wolves'][count]) > 0.1) & (abs(means['mean_grass'][count - 1] - means['mean_grass'][count]) > 0.1):
+    # add to count
+    count = count + 1
+    # add to runs
+    runs = runs + 1
+    # set up model
     netlogo.command('setup')
-    # execute for 500 ticks or until the model is done
-    netlogo.command('repeat 500 [go]')
-    # record number of sheep, wolves, and grass
+    # run model
+    netlogo.command('repeat 100 [go]')
+    # record number of wolves, sheep, and grass
     sheep = netlogo.report('count sheep')
     wolves = netlogo.report('count wolves')
     grass = netlogo.report('count grass')
-    # add to data frame
-    results_df = results_df.append({'run': j, 'sheep': sheep, 'wolves': wolves, 'grass': grass}, ignore_index = True)
-  
-  print(''.join(['finished run ', str(i), '\n']), flush = True)
+    # compute new means
+    df = means[(means['initial_number_sheep'] == initial_number_sheep) & (means['initial_number_wolves'] == initial_number_wolves) & (means['sheep_gain_from_food'] == sheep_gain_from_food) & (means['wolf_gain_from_food'] == wolf_gain_from_food) & (means['sheep_reproduce'] == sheep_reproduce) & (means['wolf_reproduce'] == wolf_reproduce) & (means['grass_regrowth'] == grass_regrowth)]
+    new_mean_sheep = ((df['mean_sheep'].mean() * len(df)) + sheep) / (len(df) + 1)
+    new_mean_wolves = ((df['mean_wolves'].mean() * len(df)) + wolves) / (len(df) + 1)
+    new_mean_grass = ((df['mean_grass'].mean() * len(df)) + grass) / (len(df) + 1)
+    # add to dataframe
+    means = means.append({'initial_number_sheep': initial_number_sheep, 'initial_number_wolves': initial_number_wolves, 'sheep_gain_from_food': sheep_gain_from_food, 'wolf_gain_from_food': wolf_gain_from_food, 'sheep_reproduce': sheep_reproduce, 'wolf_reproduce': wolf_reproduce, 'grass_regrowth': grass_regrowth, 'run': runs, 'mean_wolves': new_mean_wolves, 'mean_sheep': new_mean_wolves, 'mean_grass': new_mean_grass, 'sheep': sheep, 'wolves': wolves, 'grass': grass}, ignore_index = True)
+
+means
+
+means.to_csv('data/raw/wolfsheep_meancovergence.csv')
 ```
-Compute the CVs
+
+```{r}
+means <- read_csv('data/raw/wolfsheep_meancovergence.csv')
+
+runs_summarised <- means %>%
+  group_by(initial_number_sheep, initial_number_wolves,
+           sheep_gain_from_food, wolf_gain_from_food,
+           sheep_reproduce, wolf_reproduce, grass_regrowth) %>%
+  mutate(max_run = max(run)) %>%
+  filter(run == max_run) %>%
+  ungroup() %>%
+  select('run')
+
+runs_summarised %>%
+  summarise(mean = mean(run),
+            median = median(run),
+            min = min(run),
+            max = max(run))
+
+as.data.frame(runs_summarised) %>%
+  ggplot(mapping = aes(x = run)) +
+  geom_histogram(binwidth = 2) +
+  geom_vline(xintercept = 15) +
+  geom_vline(xintercept = 7) +
+  annotate(geom = 'text', label = 'median',
+           x = 5, y = 11, angle = 90) +
+  annotate(geom = 'text', label = 'mean',
+           x = 13, y = 11, angle = 90) +
+  theme_minimal() +
+  labs(y = 'count',
+       x = 'runs until mean convergence')
+```
+The mean number of required runs is 15, but the median is only 7. The highest number is 77.
+
+2) Coefficient of variation
+To determine how often the model should be run, I look at the coefficient of variation: $standard deviation / mean$. At the number of repetitions where this remains approximately the same, we can assume convergence [LU40]. This is only true for linear relationships, which we don't have here, but it will give an indication of how often to run the model. I only use a few parameter settings to cut down on the run time, and I also don't include the very extremes of the parameter settings since those tend to take longer to run.
 ```{python}
-# numbers of runs to compare
-runs = [5, 10, 15, 20]
-# dataframe to store CVs
-CVs = pd.DataFrame(columns = ['runs', 'CV_sheep', 'CV_wolves', 'CV_grass'])
+runs = [3, 5, 7, 10, 15, 20]
+CVs = pd.DataFrame(columns = ['initial_number_sheep', 'initial_number_wolves', 'sheep_gain_from_food', 'wolf_gain_from_food', 'sheep_reproduce', 'wolf_reproduce', 'grass_regrowth', 'runs', 'CV_sheep', 'CV_wolves', 'CV_grass'])
 
-# if standard deviation = 0, set CV to 0
-def check_std(x):
-  if math.isinf(x):
-    x = 0
-  else:
-    x = int(x)
-  return(x)
+# set random seed
+netlogo.command('clean')
 
-# for each number of runs
-for k in runs:
-  # sample which runs to use (out of 20)
-  run_ind = random.sample(range(1,21), k = k)
-  sample_df = results_df.loc[results_df['run'].isin(run_ind)]
-  # compute CV for sheep, wolves, and grass
-  # run through check_std function to correct for std = 0, if necessary
-  CV_new_sheep = sample_df['sheep'].mean() / sample_df['sheep'].std() * 100
-  CV_new_sheep = check_std(CV_new_sheep)
-  CV_new_wolves = sample_df['wolves'].mean() / sample_df['wolves'].std() * 100
-  CV_new_wolves = check_std(CV_new_wolves)
-  CV_new_grass = sample_df['grass'].mean() / sample_df['grass'].std() * 100
-  CV_new_grass = check_std(CV_new_grass)
-  # add new CVs to data frame
-  CVs = CVs.append({'runs': k, 'CV_sheep' : CV_new_sheep, 'CV_wolves': CV_new_wolves, 'CV_grass': CV_new_grass}, ignore_index = True)
+for i in range(0,len(param_comb)):
+  # set parameters
+  initial_number_sheep = str(param_comb['initial_number_sheep'][i])
+  initial_number_wolves = str(param_comb['initial_number_wolves'][i])
+  sheep_gain_from_food = str(param_comb['sheep_gain_from_food'][i])
+  wolf_gain_from_food = str(param_comb['wolf_gain_from_food'][i])
+  sheep_reproduce = str(param_comb['sheep_reproduce'][i])
+  wolf_reproduce = str(param_comb['wolf_reproduce'][i])
+  grass_regrowth = str(param_comb['grass_regrowth'][i])
+  netlogo.command(''.join(['set initial-number-sheep ', initial_number_sheep]))
+  netlogo.command(''.join(['set initial-number-wolves ', initial_number_wolves]))
+  netlogo.command(''.join(['set  sheep-gain-from-food ',  sheep_gain_from_food]))
+  netlogo.command(''.join(['set wolf-gain-from-food ',  wolf_gain_from_food]))
+  netlogo.command(''.join(['set sheep-reproduce ', sheep_reproduce]))
+  netlogo.command(''.join(['set wolf-reproduce ', wolf_reproduce]))
+  netlogo.command(''.join(['set grass-regrowth-time ', grass_regrowth]))
+  
+  # set up data frame to store results
+  out_df = pd.DataFrame(columns = ['sheep', 'wolves', 'grass'])
+  for k in runs:
+    for x in range(0, k):
+      # setup
+      netlogo.command('setup')
+      # execute for 100 ticks
+      netlogo.command('repeat 100 [go]')
+      # record sheep, wolves, grass
+      sheep = netlogo.report('count sheep')
+      wolves = netlogo.report('count wolves')
+      grass = netlogo.report ('count grass')
+      # store
+      out_df = out_df.append({'sheep': sheep, 'wolves': wolves, 'grass': grass}, ignore_index = True)
+      
+    # compute CV for sheep
+    if out_df['sheep'].std() == 0: CV_new_sheep = 0
+    # if std not zero
+    if out_df['sheep'].std() != 0: CV_new_sheep = out_df['sheep'].mean() / out_df['sheep'].std()
+    # compute CV for wolves
+    if out_df['wolves'].std() == 0: CV_new_wolves = 0
+    # if std not zero
+    if out_df['wolves'].std() != 0: CV_new_wolves = out_df['wolves'].mean() / out_df['wolves'].std()
+    # compute CV for grass
+    if out_df['grass'].std() == 0: CV_new_grass = 0
+    # if std not zero
+    if out_df['grass'].std() != 0: CV_new_grass = out_df['grass'].mean() / out_df['grass'].std()
+
+    # add
+    CVs = CVs.append({'initial_number_sheep': initial_number_sheep, 'initial_number_wolves': initial_number_wolves, 'sheep_gain_from_food': sheep_gain_from_food, 'wolf_gain_from_food': wolf_gain_from_food, 'sheep_reproduce': sheep_reproduce, 'wolf_reproduce': wolf_reproduce, 'grass_regrowth': grass_regrowth, 'runs': k, 'CV_sheep': CV_new_sheep, 'CV_wolves': CV_new_wolves, 'CV_grass': CV_new_grass}, ignore_index = True)
+
+CVs.to_csv('data/processed/wolfsheep_CVs_version2.csv')
 ```
 Inspect results
-```{python}
-CVs
+```{r}
+CVs <- read_csv('data/processed/wolfsheep_CVs_version2.csv')
 
-CVs.to_csv('data/processed/wolfsheep_CVs.csv')
+CVs_grouped <- CVs %>%
+  group_by(initial_number_sheep, initial_number_wolves,
+           sheep_gain_from_food, wolf_gain_from_food,
+           sheep_reproduce, wolf_reproduce,
+           grass_regrowth) %>%
+  mutate(number =  trunc(max(...1) / 5)) %>%
+  ungroup()
+
+p1 <- CVs_grouped %>%
+  ggplot(mapping = aes(x = runs, y = CV_sheep,
+                       colour = number, group = number)) +
+  geom_point() +
+  geom_line() +
+  theme_minimal() +
+  theme(legend.position = 'none') +
+  labs(y = 'CV for number of sheep at tick 100')
+
+p2 <- CVs_grouped %>%
+  ggplot(mapping = aes(x = runs, y = CV_wolves,
+                       colour = number, group = number)) +
+  geom_point() +
+  geom_line() +
+  theme_minimal() +
+  theme(legend.position = 'none') +
+  labs(y = 'CV for number of wolves at tick 100')
+
+p3 <- CVs_grouped %>%
+  ggplot(mapping = aes(x = runs, y = CV_grass,
+                       colour = number, group = number)) +
+  geom_point() +
+  geom_line() +
+  theme_minimal() +
+  theme(legend.position = 'none') +
+  labs(y = 'CV for amount of grass at tick 100')
+
+(p1 + p2) / (p3)
 ```
-15 runs is sufficient.
+For the majority, the CV seems to level out around 10 or 15 runs.
 
+I conclude that 10 runs is sufficient.
+
+# Sensitivity analysis
+
+
+# Sampling parameter space
 I set up a Latin Hypercube sample of the parameter space to ensure adequate coverage. Then I run the model 15 times for each parameter combination.
 ```{r}
 # for Latin hypercube sampling
