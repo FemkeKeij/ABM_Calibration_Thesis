@@ -29,6 +29,10 @@ Import R packages:
 library(tidyverse)
 # for arranging plots
 library(patchwork)
+# for cumulative computations
+library(zoo)
+# for rolling averages
+library(slider)
 ```
 
 Set seed:
@@ -49,8 +53,19 @@ netlogo.command('set model-version "sheep-wolves-grass"')
 ```
 
 # Determine number of runs
-Instead of combining a low, mid, and high value for each parameter, I use only the 25% and 75% quartile of each range. This brings the number of parameter combinations down from 2187 to 128.
+1) coefficient of variation
+2) mean convergence
+3) windowed variance
 
+then also try 1) and 2) with setting a different epsilon for each parameter (only necessary if they aren't on the same scale, so maybe different for grass vs. wolf and sheep? check this before trying it out)
+
+We can compute all these statistics using just 1 data set. To do so, we run each parameter combination 50 times and save the outputs at time step 100 (this is an arbitrary choice that should potentially be remedied later to include the time steps etc. that I'm actually going to use). I then compute the following:
+1) coefficient of variation: sigma / mu for 1, ..., 50 runs
+2) mean convergence: mu for 1, ..., 50 runs
+3) windowed variance: sigma for 1, ..., 50 runs
+We then see where these stabilize within a given epsilon.
+
+Instead of combining a low, mid, and high value for each parameter, I use only the 25% and 75% quartile of each range. This brings the number of parameter combinations down from 2187 to 128.
 ```{python}
 initial_number_sheep = [62, 188]
 initial_number_wolves = [62, 188]
@@ -69,12 +84,12 @@ def expand_grid(data_dict):
 param_comb = expand_grid(dictionary)
 ```
 
-1) Mean convergence
+Obtain all necessary data:
 ```{python}
 # data frame to store results
-means = pd.DataFrame(columns = ['initial_number_sheep', 'initial_number_wolves', 'sheep_gain_from_food', 'wolf_gain_from_food', 'sheep_reproduce', 'wolf_reproduce', 'grass_regrowth', 'run', 'mean_wolves', 'mean_sheep', 'mean_grass', 'wolves', 'sheep', 'grass'])
+out_df = pd.DataFrame(columns = ['initial_number_sheep', 'initial_number_wolves', 'sheep_gain_from_food', 'wolf_gain_from_food', 'sheep_reproduce', 'wolf_reproduce', 'grass_regrowth', 'run', 'wolves', 'sheep', 'grass'])
 # add empty row to start
-means = means.append({'initial_number_sheep': 0, 'initial_number_wolves': 0, 'sheep_gain_from_food': 0, 'wolf_gain_from_food': 0, 'sheep_reproduce': 0, 'wolf_reproduce': 0, 'grass_regrowth': 0, 'run': 0, 'mean_wolves': -100, 'mean_sheep': -100, 'mean_grass': -100, 'sheep': -100, 'wolves': -100, 'grass': -100}, ignore_index = True)
+out_df = out_df.append({'initial_number_sheep': 0, 'initial_number_wolves': 0, 'sheep_gain_from_food': 0, 'wolf_gain_from_food': 0, 'sheep_reproduce': 0, 'wolf_reproduce': 0, 'grass_regrowth': 0, 'run': 0, 'sheep': -100, 'wolves': -100, 'grass': -100}, ignore_index = True)
 
 # set counter
 count = 0
@@ -98,187 +113,414 @@ for i in range(0,len(param_comb)):
   netlogo.command(''.join(['set wolf-reproduce ', wolf_reproduce]))
   netlogo.command(''.join(['set grass-regrowth-time ', grass_regrowth]))
   
-  # reset number of runs
-  runs = 1
-  # set up model
-  netlogo.command('setup')
-  # initial run
-  netlogo.command('repeat 100 [go]')
-  # record number of wolves, sheep, and grass
-  sheep = netlogo.report('count sheep')
-  wolves = netlogo.report('count wolves')
-  grass = netlogo.report('count grass')
-  # add to data frame
-  means = means.append({'initial_number_sheep': initial_number_sheep, 'initial_number_wolves': initial_number_wolves, 'sheep_gain_from_food': sheep_gain_from_food, 'wolf_gain_from_food': wolf_gain_from_food, 'sheep_reproduce': sheep_reproduce, 'wolf_reproduce': wolf_reproduce, 'grass_regrowth': grass_regrowth, 'run': runs, 'mean_wolves': wolves, 'mean_sheep': sheep, 'mean_grass': grass, 'sheep': sheep, 'wolves': wolves, 'grass': grass}, ignore_index = True)
-  # add count
-  count = count + 1
-  # repeat runs until mean wolves, sheep, and grass at 100 ticks
-  # don't change anymore (up to threshold 0.1)
-  while (abs(means['mean_sheep'][count - 1] - means['mean_sheep'][count]) > 0.1) & (abs(means['mean_wolves'][count - 1] - means['mean_wolves'][count]) > 0.1) & (abs(means['mean_grass'][count - 1] - means['mean_grass'][count]) > 0.1):
-    # add to count
-    count = count + 1
-    # add to runs
-    runs = runs + 1
-    # set up model
+  for x in range(0, 50):
+    # setup
     netlogo.command('setup')
-    # run model
+    # execute for 100 ticks
     netlogo.command('repeat 100 [go]')
-    # record number of wolves, sheep, and grass
+    # record sheep, wolves, grass
     sheep = netlogo.report('count sheep')
     wolves = netlogo.report('count wolves')
-    grass = netlogo.report('count grass')
-    # compute new means
-    df = means[(means['initial_number_sheep'] == initial_number_sheep) & (means['initial_number_wolves'] == initial_number_wolves) & (means['sheep_gain_from_food'] == sheep_gain_from_food) & (means['wolf_gain_from_food'] == wolf_gain_from_food) & (means['sheep_reproduce'] == sheep_reproduce) & (means['wolf_reproduce'] == wolf_reproduce) & (means['grass_regrowth'] == grass_regrowth)]
-    new_mean_sheep = ((df['mean_sheep'].mean() * len(df)) + sheep) / (len(df) + 1)
-    new_mean_wolves = ((df['mean_wolves'].mean() * len(df)) + wolves) / (len(df) + 1)
-    new_mean_grass = ((df['mean_grass'].mean() * len(df)) + grass) / (len(df) + 1)
-    # add to dataframe
-    means = means.append({'initial_number_sheep': initial_number_sheep, 'initial_number_wolves': initial_number_wolves, 'sheep_gain_from_food': sheep_gain_from_food, 'wolf_gain_from_food': wolf_gain_from_food, 'sheep_reproduce': sheep_reproduce, 'wolf_reproduce': wolf_reproduce, 'grass_regrowth': grass_regrowth, 'run': runs, 'mean_wolves': new_mean_wolves, 'mean_sheep': new_mean_wolves, 'mean_grass': new_mean_grass, 'sheep': sheep, 'wolves': wolves, 'grass': grass}, ignore_index = True)
+    grass = netlogo.report ('count grass')
+    # store
+    out_df = out_df.append({'initial_number_sheep': initial_number_sheep, 'initial_number_wolves': initial_number_wolves, 'sheep_gain_from_food': sheep_gain_from_food, 'wolf_gain_from_food': wolf_gain_from_food, 'sheep_reproduce': sheep_reproduce, 'wolf_reproduce': wolf_reproduce, 'grass_regrowth': grass_regrowth, 'run': x + 1, 'sheep': sheep, 'wolves': wolves, 'grass': grass}, ignore_index = True)
 
-means
-
-means.to_csv('data/raw/wolfsheep_meancovergence.csv')
+out_df.to_csv('data/raw/wolfsheep_numruns.csv')
 ```
 
+Compute statistics:
 ```{r}
-means <- read_csv('data/raw/wolfsheep_meancovergence.csv')
+numruns <- read.csv('data/raw/wolfsheep_numruns.csv')
 
-runs_summarised <- means %>%
-  group_by(initial_number_sheep, initial_number_wolves,
-           sheep_gain_from_food, wolf_gain_from_food,
-           sheep_reproduce, wolf_reproduce, grass_regrowth) %>%
-  mutate(max_run = max(run)) %>%
-  filter(run == max_run) %>%
-  ungroup() %>%
-  select('run')
+# remove first row
+numruns <- numruns %>%
+  slice(-1)
 
-runs_summarised %>%
-  summarise(mean = mean(run),
-            median = median(run),
-            min = min(run),
-            max = max(run))
+# add a unique number for each parameter combination
+numruns <- numruns %>%
+  group_by(initial_number_sheep, initial_number_wolves, sheep_gain_from_food,
+           wolf_gain_from_food, sheep_reproduce, wolf_reproduce, grass_regrowth) %>%
+  mutate(combination_number = cur_group_id())
+```
 
-as.data.frame(runs_summarised) %>%
+1) Mean convergence
+With $\epsilon_\mu = 1$
+```{r}
+numruns <- numruns %>%
+  group_by(combination_number) %>%
+  # compute cumulative means
+  # and differences between means
+  mutate(mean_sheep = cummean(sheep),
+         mean_wolves = cummean(wolves),
+         mean_grass = cummean(grass),
+         mean_diff_sheep = mean_sheep - lag(mean_sheep, default = mean_sheep[1]),
+         mean_diff_wolves = mean_wolves - lag(mean_wolves, default = mean_wolves[1]),
+         mean_diff_grass = mean_grass - lag(mean_grass, default = mean_grass[1]))
+
+# compute at which point the mean difference settles below 1
+mean_conv_sheep <- numruns %>%
+  group_by(combination_number) %>%
+  filter(abs(mean_diff_sheep) < 1,
+         run != 1) %>%
+  slice(which.min(run))
+
+mean_conv_wolves <- numruns %>%
+  group_by(combination_number) %>%
+  filter(abs(mean_diff_wolves) < 1,
+         run != 1) %>%
+  slice(which.min(run))
+
+mean_conv_grass <- numruns %>%
+  group_by(combination_number) %>%
+  filter(abs(mean_diff_grass) < 1,
+         run != 1) %>%
+  slice(which.min(run))
+  
+# plot for sheep
+p1_sheep <- numruns %>%
+  ggplot(mapping = aes(x = run, y = mean_diff_sheep,
+                       group = combination_number)) +
+  geom_line(colour = 'lightgrey') +
+  geom_hline(yintercept = 1, colour = 'darkgreen') +
+  geom_hline(yintercept = - 1, colour = 'darkgreen') +
+  theme_minimal() +
+  labs(y = 'difference mean number of sheep',
+       caption = 'Difference in mean number of sheep when adding 1 run')
+
+p2_sheep <- mean_conv_sheep %>%
   ggplot(mapping = aes(x = run)) +
-  geom_histogram(binwidth = 2) +
-  geom_vline(xintercept = 15) +
-  geom_vline(xintercept = 7) +
-  annotate(geom = 'text', label = 'median',
-           x = 5, y = 11, angle = 90) +
+  geom_histogram(binwidth = 1) +
+  geom_vline(xintercept = mean(mean_conv_sheep$run),
+             colour = 'darkgreen', lty = 2) +
+  geom_vline(xintercept = median(mean_conv_sheep$run),
+             colour = 'darkblue', lty = 2) +
   annotate(geom = 'text', label = 'mean',
-           x = 13, y = 11, angle = 90) +
+           x = mean(mean_conv_sheep$run) + 1, y = 20,
+           colour = 'darkgreen', angle = 90) +
+  annotate(geom = 'text', label = 'median',
+           x = median(mean_conv_sheep$run) - 1, y = 20,
+           colour = 'darkblue', angle = 90) +
   theme_minimal() +
   labs(y = 'count',
-       x = 'runs until mean convergence')
+       x = 'number of runs until mean convergence')
+
+# plot for wolves
+p1_wolves <- numruns %>%
+  ggplot(mapping = aes(x = run, y = mean_diff_wolves,
+                       group = combination_number)) +
+  geom_line(colour = 'lightgrey') +
+  geom_hline(yintercept = 1, colour = 'darkgreen') +
+  geom_hline(yintercept = - 1, colour = 'darkgreen') +
+  theme_minimal() +
+  labs(y = 'difference mean number of wolves',
+       caption = 'Difference in mean number of wolves when adding 1 run')
+
+p2_wolves <- mean_conv_wolves %>%
+  ggplot(mapping = aes(x = run)) +
+  geom_histogram(binwidth = 1) +
+  geom_vline(xintercept = mean(mean_conv_wolves$run),
+             colour = 'darkgreen', lty = 2) +
+  geom_vline(xintercept = median(mean_conv_wolves$run),
+             colour = 'darkblue', lty = 2) +
+  annotate(geom = 'text', label = 'mean',
+           x = mean(mean_conv_wolves$run) + 1, y = 20,
+           colour = 'darkgreen', angle = 90) +
+  annotate(geom = 'text', label = 'median',
+           x = median(mean_conv_wolves$run) - 1, y = 20,
+           colour = 'darkblue', angle = 90) +
+  theme_minimal() +
+  labs(y = 'count',
+       x = 'number of runs until mean convergence')
+
+# plot for grass
+p1_grass <- numruns %>%
+  ggplot(mapping = aes(x = run, y = mean_diff_grass,
+                       group = combination_number)) +
+  geom_line(colour = 'lightgrey') +
+  geom_hline(yintercept = 1, colour = 'darkgreen') +
+  geom_hline(yintercept = - 1, colour = 'darkgreen') +
+  theme_minimal() +
+  labs(y = 'difference mean number of grass',
+       caption = 'Difference in mean number of grass when adding 1 run')
+
+p2_grass <- mean_conv_grass %>%
+  ggplot(mapping = aes(x = run)) +
+  geom_histogram(binwidth = 1) +
+  geom_vline(xintercept = mean(mean_conv_grass$run),
+             colour = 'darkgreen', lty = 2) +
+  geom_vline(xintercept = median(mean_conv_grass$run),
+             colour = 'darkblue', lty = 2) +
+  annotate(geom = 'text', label = 'mean',
+           x = mean(mean_conv_grass$run) + 1, y = 20,
+           colour = 'darkgreen', angle = 90) +
+  annotate(geom = 'text', label = 'median',
+           x = median(mean_conv_grass$run) - 1, y = 20,
+           colour = 'darkblue', angle = 90) +
+  theme_minimal() +
+  labs(y = 'count',
+       x = 'number of runs until mean convergence')
+
+# plot all together
+mean_conv_plot <- (p1_sheep + p1_wolves + p1_grass) / (p2_sheep + p2_wolves + p2_grass)
 ```
-The mean number of required runs is 15, but the median is only 7. The highest number is 77.
 
 2) Coefficient of variation
-To determine how often the model should be run, I look at the coefficient of variation: $standard deviation / mean$. At the number of repetitions where this remains approximately the same, we can assume convergence [LU40]. This is only true for linear relationships, which we don't have here, but it will give an indication of how often to run the model. I only use a few parameter settings to cut down on the run time, and I also don't include the very extremes of the parameter settings since those tend to take longer to run.
-```{python}
-runs = [3, 5, 7, 10, 15, 20]
-CVs = pd.DataFrame(columns = ['initial_number_sheep', 'initial_number_wolves', 'sheep_gain_from_food', 'wolf_gain_from_food', 'sheep_reproduce', 'wolf_reproduce', 'grass_regrowth', 'runs', 'CV_sheep', 'CV_wolves', 'CV_grass'])
-
-# set random seed
-netlogo.command('clean')
-
-for i in range(0,len(param_comb)):
-  # set parameters
-  initial_number_sheep = str(param_comb['initial_number_sheep'][i])
-  initial_number_wolves = str(param_comb['initial_number_wolves'][i])
-  sheep_gain_from_food = str(param_comb['sheep_gain_from_food'][i])
-  wolf_gain_from_food = str(param_comb['wolf_gain_from_food'][i])
-  sheep_reproduce = str(param_comb['sheep_reproduce'][i])
-  wolf_reproduce = str(param_comb['wolf_reproduce'][i])
-  grass_regrowth = str(param_comb['grass_regrowth'][i])
-  netlogo.command(''.join(['set initial-number-sheep ', initial_number_sheep]))
-  netlogo.command(''.join(['set initial-number-wolves ', initial_number_wolves]))
-  netlogo.command(''.join(['set  sheep-gain-from-food ',  sheep_gain_from_food]))
-  netlogo.command(''.join(['set wolf-gain-from-food ',  wolf_gain_from_food]))
-  netlogo.command(''.join(['set sheep-reproduce ', sheep_reproduce]))
-  netlogo.command(''.join(['set wolf-reproduce ', wolf_reproduce]))
-  netlogo.command(''.join(['set grass-regrowth-time ', grass_regrowth]))
-  
-  # set up data frame to store results
-  out_df = pd.DataFrame(columns = ['sheep', 'wolves', 'grass'])
-  for k in runs:
-    for x in range(0, k):
-      # setup
-      netlogo.command('setup')
-      # execute for 100 ticks
-      netlogo.command('repeat 100 [go]')
-      # record sheep, wolves, grass
-      sheep = netlogo.report('count sheep')
-      wolves = netlogo.report('count wolves')
-      grass = netlogo.report ('count grass')
-      # store
-      out_df = out_df.append({'sheep': sheep, 'wolves': wolves, 'grass': grass}, ignore_index = True)
-      
-    # compute CV for sheep
-    if out_df['sheep'].std() == 0: CV_new_sheep = 0
-    # if std not zero
-    if out_df['sheep'].std() != 0: CV_new_sheep = out_df['sheep'].mean() / out_df['sheep'].std()
-    # compute CV for wolves
-    if out_df['wolves'].std() == 0: CV_new_wolves = 0
-    # if std not zero
-    if out_df['wolves'].std() != 0: CV_new_wolves = out_df['wolves'].mean() / out_df['wolves'].std()
-    # compute CV for grass
-    if out_df['grass'].std() == 0: CV_new_grass = 0
-    # if std not zero
-    if out_df['grass'].std() != 0: CV_new_grass = out_df['grass'].mean() / out_df['grass'].std()
-
-    # add
-    CVs = CVs.append({'initial_number_sheep': initial_number_sheep, 'initial_number_wolves': initial_number_wolves, 'sheep_gain_from_food': sheep_gain_from_food, 'wolf_gain_from_food': wolf_gain_from_food, 'sheep_reproduce': sheep_reproduce, 'wolf_reproduce': wolf_reproduce, 'grass_regrowth': grass_regrowth, 'runs': k, 'CV_sheep': CV_new_sheep, 'CV_wolves': CV_new_wolves, 'CV_grass': CV_new_grass}, ignore_index = True)
-
-CVs.to_csv('data/processed/wolfsheep_CVs_version2.csv')
-```
-Inspect results
+With $\epsilon_{c_\upsilon} = 0.1$.
 ```{r}
-CVs <- read_csv('data/processed/wolfsheep_CVs_version2.csv')
+numruns <- numruns %>%
+  group_by(combination_number) %>%
+  # compute cumulative standard deviations
+  # compute coefficient of variation
+  mutate(sd_sheep = rollapplyr(sheep, 1:n(), sd),
+         sd_wolves = rollapplyr(wolves, 1:n(), sd),
+         sd_grass = rollapplyr(grass, 1:n(), sd),
+         cv_sheep = sd_sheep / mean_sheep,
+         cv_wolves = sd_wolves / mean_wolves,
+         cv_grass = sd_grass / mean_grass) %>%
+  # replace all NAs (resulting from sd = 0) with 0
+  replace(is.na(.), 0) %>%
+  # compute differences in cvs
+  mutate(cv_diff_sheep = cv_sheep - lag(cv_sheep, default = cv_sheep[1]),
+         cv_diff_wolves = cv_wolves - lag(cv_wolves, default = cv_wolves[1]),
+         cv_diff_grass = cv_grass - lag(cv_grass, default = cv_grass[1]))
+  
+# compute at which point the mean difference settles below 1
+cv_conv_sheep <- numruns %>%
+  group_by(combination_number) %>%
+  filter(abs(cv_diff_sheep) < 0.1,
+         run != 1) %>%
+  slice(which.min(run))
 
-CVs_grouped <- CVs %>%
-  group_by(initial_number_sheep, initial_number_wolves,
-           sheep_gain_from_food, wolf_gain_from_food,
-           sheep_reproduce, wolf_reproduce,
-           grass_regrowth) %>%
-  mutate(number =  trunc(max(...1) / 5)) %>%
-  ungroup()
+cv_conv_wolves <- numruns %>%
+  group_by(combination_number) %>%
+  filter(abs(cv_diff_wolves) < 0.1,
+         run != 1) %>%
+  slice(which.min(run))
 
-p1 <- CVs_grouped %>%
-  ggplot(mapping = aes(x = runs, y = CV_sheep,
-                       colour = number, group = number)) +
-  geom_point() +
-  geom_line() +
+cv_conv_grass <- numruns %>%
+  group_by(combination_number) %>%
+  filter(abs(cv_diff_grass) < 0.1,
+         run != 1) %>%
+  slice(which.min(run))
+
+# plot for sheep
+p1_sheep <- numruns %>%
+  ggplot(mapping = aes(x = run, y = cv_diff_sheep,
+                       group = combination_number)) +
+  geom_line(colour = 'lightgrey') +
+  geom_hline(yintercept = 0.1, colour = 'darkgreen') +
+  geom_hline(yintercept = - 0.1, colour = 'darkgreen') +
   theme_minimal() +
-  theme(legend.position = 'none') +
-  labs(y = 'CV for number of sheep at tick 100')
+  labs(y = 'cv number of sheep',
+       caption = 'Difference in cv of sheep when adding 1 run')
 
-p2 <- CVs_grouped %>%
-  ggplot(mapping = aes(x = runs, y = CV_wolves,
-                       colour = number, group = number)) +
-  geom_point() +
-  geom_line() +
+p2_sheep <- cv_conv_sheep %>%
+  ggplot(mapping = aes(x = run)) +
+  geom_histogram(binwidth = 1) +
+  geom_vline(xintercept = mean(cv_conv_sheep$run),
+             colour = 'darkgreen', lty = 2) +
+  geom_vline(xintercept = median(cv_conv_sheep$run),
+             colour = 'darkblue', lty = 2) +
+  annotate(geom = 'text', label = 'mean',
+           x = mean(cv_conv_sheep$run) + 1, y = 20,
+           colour = 'darkgreen', angle = 90) +
+  annotate(geom = 'text', label = 'median',
+           x = median(cv_conv_sheep$run) - 1, y = 20,
+           colour = 'darkblue', angle = 90) +
   theme_minimal() +
-  theme(legend.position = 'none') +
-  labs(y = 'CV for number of wolves at tick 100')
+  labs(y = 'count',
+       x = 'number of runs until cv convergence')
 
-p3 <- CVs_grouped %>%
-  ggplot(mapping = aes(x = runs, y = CV_grass,
-                       colour = number, group = number)) +
-  geom_point() +
-  geom_line() +
+# plot for wolves
+p1_wolves <- numruns %>%
+  ggplot(mapping = aes(x = run, y = cv_diff_wolves,
+                       group = combination_number)) +
+  geom_line(colour = 'lightgrey') +
+  geom_hline(yintercept = 0.1, colour = 'darkgreen') +
+  geom_hline(yintercept = - 0.1, colour = 'darkgreen') +
   theme_minimal() +
-  theme(legend.position = 'none') +
-  labs(y = 'CV for amount of grass at tick 100')
+  labs(y = 'difference cv of wolves',
+       caption = 'Difference in cv of wolves when adding 1 run')
 
-(p1 + p2) / (p3)
+p2_wolves <- cv_conv_wolves %>%
+  ggplot(mapping = aes(x = run)) +
+  geom_histogram(binwidth = 1) +
+  geom_vline(xintercept = mean(cv_conv_wolves$run),
+             colour = 'darkgreen', lty = 2) +
+  geom_vline(xintercept = median(cv_conv_wolves$run),
+             colour = 'darkblue', lty = 2) +
+  annotate(geom = 'text', label = 'mean',
+           x = mean(cv_conv_wolves$run) + 1, y = 20,
+           colour = 'darkgreen', angle = 90) +
+  annotate(geom = 'text', label = 'median',
+           x = median(cv_conv_wolves$run) - 1, y = 20,
+           colour = 'darkblue', angle = 90) +
+  theme_minimal() +
+  labs(y = 'count',
+       x = 'number of runs until cv convergence')
+
+# plot for grass
+p1_grass <- numruns %>%
+  ggplot(mapping = aes(x = run, y = cv_diff_grass,
+                       group = combination_number)) +
+  geom_line(colour = 'lightgrey') +
+  geom_hline(yintercept = 0.1, colour = 'darkgreen') +
+  geom_hline(yintercept = - 0.1, colour = 'darkgreen') +
+  theme_minimal() +
+  labs(y = 'difference cv of grass',
+       caption = 'Difference in cv of grass when adding 1 run')
+
+p2_grass <- cv_conv_grass %>%
+  ggplot(mapping = aes(x = run)) +
+  geom_histogram(binwidth = 1) +
+  geom_vline(xintercept = mean(cv_conv_grass$run),
+             colour = 'darkgreen', lty = 2) +
+  geom_vline(xintercept = median(cv_conv_grass$run),
+             colour = 'darkblue', lty = 2) +
+  annotate(geom = 'text', label = 'mean',
+           x = mean(cv_conv_grass$run) + 1, y = 20,
+           colour = 'darkgreen', angle = 90) +
+  annotate(geom = 'text', label = 'median',
+           x = median(cv_conv_grass$run) - 1, y = 20,
+           colour = 'darkblue', angle = 90) +
+  theme_minimal() +
+  labs(y = 'count',
+       x = 'number of runs until cv convergence')
+
+# plot all together
+cv_conv_plot <- (p1_sheep + p1_wolves + p1_grass) / (p2_sheep + p2_wolves + p2_grass)
 ```
-For the majority, the CV seems to level out around 10 or 15 runs.
 
-I conclude that 10 runs is sufficient.
+3) Windowed variance / relative outer variance
+```{r}
+numruns <- numruns %>% 
+  group_by(combination_number) %>% 
+  mutate(windowed_var_sheep = slider::slide_dbl(sheep, var, .before = 5, .after = 5),
+         windowed_var_wolves = slider::slide_dbl(wolves, var, .before = 5, .after = 5),
+         windowed_var_grass = slider::slide_dbl(grass, var, .before = 5, .after = 5),
+         relative_outer_var_sheep = windowed_var_sheep / max(windowed_var_sheep),
+         relative_outer_var_wolves = windowed_var_wolves / max(windowed_var_wolves),
+         relative_outer_var_grass = windowed_var_grass / max(windowed_var_grass)) %>%
+  # there's a few instances where the relative outer variance is NaN because the population
+  # is 0, therefore, we set those to 0 instead of NaN
+  mutate_at(vars(relative_outer_var_sheep,
+                 relative_outer_var_grass,
+                 relative_outer_var_wolves), ~ replace(., is.nan(.), 0))
 
-# Sensitivity analysis
+# compute at which point the relative outer variance settles below 0.2
+omega_conv_sheep <- numruns %>%
+  group_by(combination_number) %>%
+  filter(abs(relative_outer_var_sheep) < 0.2,
+         run != 1) %>%
+  slice(which.min(run))
 
+omega_conv_wolves <- numruns %>%
+  group_by(combination_number) %>%
+  filter(abs(relative_outer_var_wolves) < 0.2,
+         run != 1) %>%
+  slice(which.min(run))
+
+omega_conv_grass <- numruns %>%
+  group_by(combination_number) %>%
+  filter(abs(relative_outer_var_grass) < 0.2,
+         run != 1) %>%
+  slice(which.min(run)) 
+
+# plot for sheep
+p1_sheep <- numruns %>%
+  ggplot(mapping = aes(x = run, y = relative_outer_var_sheep,
+                       group = combination_number)) +
+  geom_line(colour = 'lightgrey') +
+  geom_hline(yintercept = 0.2, colour = 'darkgreen') +
+  labs(y = 'relative outer variance sheep') +
+  theme_minimal()
+
+p2_sheep <- omega_conv_sheep %>%
+  ggplot(mapping = aes(x = run)) +
+  geom_histogram(binwidth = 1) +
+  geom_vline(xintercept = mean(omega_conv_sheep$run),
+             colour = 'darkgreen', lty = 2) +
+  geom_vline(xintercept = median(omega_conv_sheep$run),
+             colour = 'darkblue', lty = 2) +
+  annotate(geom = 'text', label = 'mean',
+           x = mean(omega_conv_sheep$run) + 1, y = 20,
+           colour = 'darkgreen', angle = 90) +
+  annotate(geom = 'text', label = 'median',
+           x = median(omega_conv_sheep$run) - 1, y = 20,
+           colour = 'darkblue', angle = 90) +
+  theme_minimal() +
+  labs(y = 'count',
+       x = 'number of runs until relative outer variance convergence')
+
+# plot for wolves
+p1_wolves <- numruns %>%
+  ggplot(mapping = aes(x = run, y = relative_outer_var_wolves,
+                       group = combination_number)) +
+  geom_line(colour = 'lightgrey') +
+  geom_hline(yintercept = 0.2, colour = 'darkgreen') +
+  labs(y = 'relative outer variance wolves') +
+  theme_minimal()
+
+p2_wolves <- omega_conv_wolves %>%
+  ggplot(mapping = aes(x = run)) +
+  geom_histogram(binwidth = 1) +
+  geom_vline(xintercept = mean(omega_conv_wolves$run),
+             colour = 'darkgreen', lty = 2) +
+  geom_vline(xintercept = median(omega_conv_wolves$run),
+             colour = 'darkblue', lty = 2) +
+  annotate(geom = 'text', label = 'mean',
+           x = mean(omega_conv_wolves$run) + 1, y = 20,
+           colour = 'darkgreen', angle = 90) +
+  annotate(geom = 'text', label = 'median',
+           x = median(omega_conv_wolves$run) - 1, y = 20,
+           colour = 'darkblue', angle = 90) +
+  theme_minimal() +
+  labs(y = 'count',
+       x = 'number of runs until relative outer variance convergence')
+
+# plot for grass
+p1_grass <- numruns %>%
+  ggplot(mapping = aes(x = run, y = relative_outer_var_grass,
+                       group = combination_number)) +
+  geom_line(colour = 'lightgrey') +
+  geom_hline(yintercept = 0.2, colour = 'darkgreen') +
+  labs(y = 'relative outer variance grass') +
+  theme_minimal()
+
+p2_grass <- omega_conv_grass %>%
+  ggplot(mapping = aes(x = run)) +
+  geom_histogram(binwidth = 1) +
+  geom_vline(xintercept = mean(omega_conv_grass$run),
+             colour = 'darkgreen', lty = 2) +
+  geom_vline(xintercept = median(omega_conv_grass$run),
+             colour = 'darkblue', lty = 2) +
+  annotate(geom = 'text', label = 'mean',
+           x = mean(omega_conv_grass$run) + 1, y = 20,
+           colour = 'darkgreen', angle = 90) +
+  annotate(geom = 'text', label = 'median',
+           x = median(omega_conv_grass$run) - 1, y = 20,
+           colour = 'darkblue', angle = 90) +
+  theme_minimal() +
+  labs(y = 'count',
+       x = 'number of runs until relative outer variance convergence')
+
+# plot all together
+outer_var_conv_plot <- (p1_sheep + p1_wolves + p1_grass) / (p2_sheep + p2_wolves + p2_grass)
+```
+
+Inspect all results:
+```{r}
+mean_conv_plot
+cv_conv_plot
+outer_var_conv_plot
+```
+Mean convergence means and medians all under 15.
+Coefficient of variation means and medians all under 5.
+Outer relative variance means and medians all under 15.
+
+I think I can safely go for 10.
+
+Before making this conclusion final, check that I've done the outer relative variance thing correctly.
 
 # Sampling parameter space
 I set up a Latin Hypercube sample of the parameter space to ensure adequate coverage. Then I run the model 15 times for each parameter combination.
