@@ -54,7 +54,7 @@ ws_summary <- read_csv(
 all_comb <- read_csv('data/processed/wolfsheep_parameterspace.csv')
 ```
 
-# Plots
+# Plots / looking for equifinality
 Initial sheep and wolves plus the resulting final average numbers of sheep and wolves
 ```{r}
 ws_summary_lasttick <- ws_summary %>%
@@ -88,39 +88,140 @@ p2 <- ws_summary_lasttick %>%
 p1 + p2
 ```
 
+Visualise all time series:
 ```{r}
-all_comb_cat <- all_comb %>%
-  mutate(more_sheep = (initial_number_sheep > initial_number_wolves),
-         sheep_gain_food_more = (sheep_gain_from_food > wolf_gain_from_food),
-         sheep_reproduce_more = (sheep_reproduce > wolf_reproduce))
-```
-
-Average sheep, wolf, and grass populations over time for different initial parameter settings
-```{r}
-ws_summary %>%
-  group_by(combination_number) %>%
-  mutate(max_ticks = max(ticks),
-         more_sheep = all_comb_cat$more_sheep[combination_number],
-         sheep_gain_food_more =
-           all_comb_cat$sheep_gain_food_more[combination_number],
-         sheep_reproduce_more =
-           all_comb_cat$sheep_reproduce_more[combination_number]) %>%
-  ungroup() %>%
-  filter(max_ticks == 500) %>%
-  ggplot(mapping = aes(x = ticks, y = mean_sheep)) +
-  geom_line(colour = 'bisque2', linewidth = 1) +
-  geom_line(mapping = aes(y = initial_number_sheep),
-            colour = 'bisque2', linetype = 2) +
-  geom_line(mapping = aes(y = mean_wolves),
-            colour = 'darkgrey', linewidth = 1) +
-  geom_line(mapping = aes(y = initial_number_wolves),
-            colour = 'darkgrey', linetype = 2) +
-  geom_line(mapping = aes(y = mean_grass),
-            colour = 'chartreuse3', linewidth = 1) +
+p_sheep <- ws_summary %>%
+  ggplot(mapping = aes(x = ticks, y = mean_sheep,
+                       group = combination_number)) +
+  geom_line(colour = 'bisque2') +
   theme_minimal() +
-  labs(y = 'mean number') +
-  facet_wrap(~ more_sheep + sheep_gain_food_more + sheep_reproduce_more,
-             scales = 'free_y')
+  labs(y = 'sheep')
+
+p_wolves <- ws_summary %>%
+  ggplot(mapping = aes(x = ticks, y = mean_wolves,
+                       group = combination_number)) +
+  geom_line(colour = 'darkgrey') +
+  theme_minimal() +
+  labs(y = 'wolves')
+
+p_grass <- ws_summary %>%
+  ggplot(mapping = aes(x = ticks, y = mean_grass,
+                       group = combination_number)) +
+  geom_line(colour = 'darkgreen') +
+  theme_minimal() +
+  labs(y = 'grass')
+
+p_sheep + p_wolves + p_grass
 ```
 
+Now do the same, but color each based on the values of the 7 parameters:
+```{r}
+ws_summary_cat <- ws_summary %>%
+  mutate(sheep_cat = cut(initial_number_sheep,
+                         breaks = c(-Inf, 50, 100, 150, 200, Inf),
+                         labels = c('0 - 50', '51 - 100', '101 - 150',
+                                    '151 - 200', '201 - 250')),
+         wolves_cat = cut(initial_number_wolves,
+                          breaks = c(-Inf, 50, 100, 150, 200, Inf),
+                          labels = c('0 - 50', '51 - 100', '101 - 150',
+                                    '151 - 200', '201 - 250')),
+         sheep_food_cat = cut(sheep_gain_from_food,
+                         breaks = c(-Inf, 25, Inf),
+                         labels = c('0 - 25', '26 - 50')),
+         wolves_food_cat = cut(wolves_gain_from_food,
+                         breaks = c(-Inf, 25, 50, 75, Inf),
+                         labels = c('0 - 25', '26 - 50', '51 - 75', '76 - 100')),
+         sheep_rep_cat = cut(sheep_reproduce,
+                         breaks = c(-Inf, 10, Inf),
+                         labels = c('0 - 10', '11 - 20')),
+         wolves_rep_cat = cut(wolves_reproduce,
+                         breaks = c(-Inf, 10, Inf),
+                         labels = c('1 - 10', '11 - 20')),
+         grass_cat = cut(grass_regrowth,
+                         breaks = c(-Inf, 25, 50, 75, Inf),
+                         labels = c('0 - 25', '26 - 50', '51 - 75', '76 - 100')))
+```
+
+Function for plots
+```{r}
+PlotParameterSpace <- function(parameter, label){
+  p_sheep <- ws_summary_cat %>%
+    ggplot(mapping = aes(x = ticks, y = mean_sheep,
+                       group = combination_number, colour = get(parameter))) +
+    geom_line() +
+    theme_minimal() +
+    labs(y = 'sheep',
+         colour = label)
+
+  p_wolves <- ws_summary_cat %>%
+    ggplot(mapping = aes(x = ticks, y = mean_wolves,
+                       group = combination_number, colour = get(parameter))) +
+    geom_line() +
+    theme_minimal() +
+    labs(y = 'wolves',
+         colour = label)
+
+  p_grass <- ws_summary_cat %>%
+    ggplot(mapping = aes(x = ticks, y = mean_grass,
+                       group = combination_number, colour = get(parameter))) +
+    geom_line() +
+    theme_minimal() +
+    labs(y = 'grass',
+         colour = label)
+  
+  plot <- p_sheep + p_wolves + p_grass + plot_layout(guides = 'collect')
+  
+  return(plot)
+}
+```
+
+1) initial_number_sheep
+```{r}
+PlotParameterSpace(parameter = 'sheep_cat',
+                   label = 'initial number of sheep')
+```
+
+2) initial_number_wolves
+```{r}
+PlotParameterSpace(parameter = 'wolves_cat',
+                   label = 'initial numbr of wolves')
+```
+
+3) sheep_gain_from_food
+```{r}
+PlotParameterSpace(parameter = 'sheep_food_cat',
+                   label = 'sheep gain from food')
+```
+
+4) wolves_gain_from_food
+```{r}
+PlotParameterSpace(parameter = 'wolves_food_cat',
+                   label = 'wolves gain from food')
+```
+
+5) sheep_reproduce
+```{r}
+PlotParameterSpace(parameter = 'sheep_rep_cat',
+                   label = 'probability sheep reproduce')
+```
+
+6) wolves_reproduce
+```{r}
+PlotParameterSpace(parameter = 'wolves_rep_cat',
+                   label = 'probability wolves reproduce')
+```
+
+7) grass_regrowth_time
+```{r}
+PlotParameterSpace(parameter = 'grass_cat',
+                   label = 'grass regrowth time')
+```
+
+It seems very difficult to say anything about equifinality here, since there are so many different parameters to look at at once.
+
+# Identifying unidentifiable parameters
+Correlogram of all variables and outputs:
+```{r}
+
+```
 
