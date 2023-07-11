@@ -187,7 +187,8 @@ Function for plots
 PlotParameterSpace <- function(parameter, label){
   p_sheep <- ws_summary_cat %>%
     ggplot(mapping = aes(x = ticks, y = mean_sheep,
-                       group = combination_number, colour = get(parameter))) +
+                       group = combination_number,
+                       colour = get(parameter))) +
     geom_line() +
     theme_minimal() +
     labs(y = 'sheep',
@@ -195,7 +196,8 @@ PlotParameterSpace <- function(parameter, label){
 
   p_wolves <- ws_summary_cat %>%
     ggplot(mapping = aes(x = ticks, y = mean_wolves,
-                       group = combination_number, colour = get(parameter))) +
+                       group = combination_number,
+                       colour = get(parameter))) +
     geom_line() +
     theme_minimal() +
     labs(y = 'wolves',
@@ -203,7 +205,8 @@ PlotParameterSpace <- function(parameter, label){
 
   p_grass <- ws_summary_cat %>%
     ggplot(mapping = aes(x = ticks, y = mean_grass,
-                       group = combination_number, colour = get(parameter))) +
+                       group = combination_number,
+                       colour = get(parameter))) +
     geom_line() +
     theme_minimal() +
     labs(y = 'grass',
@@ -256,8 +259,96 @@ PlotParameterSpace(parameter = 'wolves_rep_cat',
 PlotParameterSpace(parameter = 'grass_cat',
                    label = 'grass regrowth time')
 ```
-
 It seems very difficult to say anything about equifinality here, since there are so many different parameters to look at at once.
+
+Apply a k-means clustering to the sheep, grass, and wolf values at timesteps 100, 250, and 500. Then take at which parameter combinations end up in the same cluster.
+Start by formatting the data for the analysis
+```{r}
+# retrieve sheep, grass, and wolves at timesteps 100, 250, and 500 for every parameter combination
+kmeans_data <- ws_summary %>%
+  filter(ticks %in% c(1, 100, 250, 500)) %>%
+  pivot_wider(names_from = ticks,
+              values_from = c(mean_sheep, mean_wolves, mean_grass)) %>%
+  # the NAs can all be replaced by 0, they result from the simulation
+  # stopping early if there are no agents left
+  replace(is.na(.), 0) %>%
+  select(mean_sheep_100, mean_sheep_250, mean_sheep_500,
+         mean_wolves_100, mean_wolves_250, mean_wolves_500,
+         mean_grass_100, mean_grass_250, mean_grass_500)
+
+# standardize data
+kmeans_data <- scale(kmeans_data)
+```
+
+Determine optimal number of clusters:
+- elbow method: we want to minimize the total within-cluster variation (or within-cluster sum of squares). we compute the wss for a number of different clusters, and then choose the number of clusters where we see the 'elbow' occur
+- average silhouette method: this approach inspects how well each observation fits within its cluster. If the average is high, that indicates good clustering.
+```{r}
+# for k-means clustering
+library(factoextra)
+
+# elbow method
+fviz_nbclust(kmeans_data, kmeans, method = "wss")
+
+# silhouette method
+fviz_nbclust(kmeans_data, kmeans, method = "silhouette")
+```
+
+I'll be using 5 centers:
+```{r}
+clustering <- kmeans(kmeans_data, centers = 5, nstart = 25)
+
+fviz_cluster(clustering, data = kmeans_data)
+```
+
+Now I can inspect which parameter combinations ended up in the same cluster.
+```{r}
+clustered_parameters <- ws_summary %>%
+  select(combination_number,
+         initial_number_sheep, initial_number_wolves,
+         wolves_gain_from_food, wolves_reproduce,
+         sheep_gain_from_food, sheep_reproduce,
+         grass_regrowth) %>%
+  distinct() %>%
+  add_column(cluster = clustering$cluster)
+
+# visualise results
+PlotClusters <- function(parameter, label){
+  plot <- clustered_parameters %>%
+    ggplot(mapping = aes(x = as.factor(cluster),
+                       y = get(parameter),
+                       colour = as.factor(cluster),
+                       fill = as.factor(cluster))) +
+    geom_jitter(width = 0.2) +
+    geom_boxplot(alpha = 0.1, width = 0.4,
+               outlier.colour = 'transparent') +
+    theme_minimal() +
+    labs(x = '5-means clusters',
+       y = label) +
+    theme(legend.position = 'none')
+  
+  return(plot)
+}
+
+clusters_sheep <- PlotClusters('initial_number_sheep',
+                               label = 'initial number of sheep')
+clusters_wolves <- PlotClusters('initial_number_wolves',
+                                label = 'initial number of wolves')
+clusters_food_sheep <- PlotClusters('sheep_gain_from_food',
+                                    label = 'sheep gain from food')
+clusters_food_wolves <- PlotClusters('wolves_gain_from_food',
+                                     label = 'wolves gain from food')
+clusters_rep_sheep <- PlotClusters('sheep_reproduce',
+                                   label = 'probability sheep reproduce')
+clusters_rep_wolves <- PlotClusters('wolves_reproduce',
+                                    label = 'probability wolves reproduce')
+clusters_grass <- PlotClusters('grass_regrowth',
+                               label = 'grass regrowth time')
+
+(clusters_sheep + clusters_wolves + clusters_food_sheep + clusters_food_wolves) / (clusters_rep_sheep + clusters_rep_wolves + clusters_grass)
+```
+Looking at this it seems like the initial parameter can tell us very little about what the outcome will be like. So a lot of equifinality.
+
 
 # ABM inspection: Identifying unidentifiable parameters
 Correlation between parameters and outputs:
