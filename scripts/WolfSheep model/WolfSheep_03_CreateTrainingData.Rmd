@@ -1,0 +1,234 @@
+---
+title: "WolfSheep_03_CreateTrainingData"
+author: "Femke Keij S2647168"
+date: "2023-07-12"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Clear working directory:
+```{r}
+rm(list = ls(all = TRUE)) 
+```
+
+Packages used:
+```{r}
+# for importing / working with tidy data
+library(tidyverse)
+
+# for arranging ggplots
+library(patchwork)
+
+# for ggplot aesthetics
+library(directlabels)
+library(RColorBrewer)
+
+# for k-means clustering
+library(factoextra)
+
+# for computing trends in data
+library(trend)
+```
+
+Random seed:
+```{r}
+set.seed(42)
+```
+
+Read in the data:
+```{r}
+# complete data set
+ws_output <- read_csv(
+  'data/raw/wolfsheep_output.csv')
+
+# output data summary
+ws_summary <- read_csv(
+  'data/processed/wolfsheep_summary.csv')
+```
+
+# Mimic real-world data: introduce random noise
+Noise is maximum 20% of the mean output value it is added to (such that smaller values can be as noisy as large ones). How much noise is added is determined by a N(0, 6). 
+```{r}
+ws_summary <- ws_summary %>%
+  rename(sheep = mean_sheep,
+         wolves = mean_wolves,
+         grass = mean_grass) %>%
+  # per parameter combination
+  group_by(combination_number) %>%
+  # compute mean sheep, grass, wolves over full time series
+  mutate(mean_sheep = mean(sheep),
+         mean_wolves = mean(wolves),
+         mean_grass = mean(grass)) %>%
+  # add noise to each value of sheep, grass, and wolves
+  rowwise %>%
+  mutate(sheep_noise = sheep + mean_sheep * rnorm(n = 1, mean = 0, sd = 6) / 100,
+         wolves_noise = wolves + mean_wolves * rnorm(n = 1, mean = 0, sd = 6) / 100,
+         grass_noise = grass + mean_grass * rnorm(n = 1, mean = 0, sd = 6) / 100) %>%
+  # add a correction for values < 0, since it's in this case not possible for values
+  # to be negative
+  mutate(sheep_noise = ifelse(sheep_noise < 0, 0, sheep_noise),
+         wolves_noise = ifelse(wolves_noise < 0, 0, wolves_noise),
+         grass_noise = ifelse(grass_noise < 0, 0, grass_noise))
+```
+Check that the noise was added properly:
+```{r}
+# sheep
+ws_summary %>%
+  ggplot(mapping = aes(x = sheep, y = sheep_noise)) +
+  geom_point(alpha = 0.5) +
+  geom_abline(intercept = 0, slope = 1,
+              colour = 'darkgreen', lty = 2) +
+  labs(x = 'sheep original', y = 'sheep noise') +
+  theme_minimal()
+
+# wolves
+ws_summary %>%
+  ggplot(mapping = aes(x = wolves, y = wolves_noise)) +
+  geom_point(alpha = 0.5) +
+  geom_abline(intercept = 0, slope = 1,
+              colour = 'darkgreen', lty = 2) +
+  labs(x = 'wolves original', y = 'wolves noise') +
+  theme_minimal()
+
+# grass
+ws_summary %>%
+  ggplot(mapping = aes(x = grass, y = grass_noise)) +
+  geom_point(alpha = 0.5) +
+  geom_abline(intercept = 0, slope = 1,
+              colour = 'darkgreen', lty = 2) +
+  labs(x = 'grass original', y = 'grass noise') +
+  theme_minimal()
+```
+
+# Summarise data into time series
+Carella 2021 does the following for this model (with 200 time steps):
+- value every 50 time steps
+- maximum
+- minimum
+- average
+- standard deviation
+- trend
+I'm going to add an option with
+- value every 20 time steps
+- maximum
+- minimum
+- average
+- standard deviation
+- trend
+And an option with
+- value every 10 time steps
+- maximum
+- minimum
+- average
+- standard deviation
+- trend
+And also an option where we look at the entire time series
++ looking only at the final time point.
+
+```{r}
+ws_summary_timesteps <- ws_summary %>%
+  # per parameter combination
+  group_by(combination_number) %>%
+  # compute min, max, sd, and trend for sheep, grass, wolves over full time series
+  # do this for both the clean and the noisy data
+  mutate(min_sheep = min(sheep),
+         max_sheep = max(sheep),
+         sd_sheep = sd(sheep),
+         trend_sheep = sens.slope(sheep)$estimates,
+         mean_sheep_noise = mean(sheep_noise),
+         min_sheep_noise = min(sheep_noise),
+         max_sheep_noise = max(sheep_noise),
+         sd_sheep_noise = sd(sheep_noise),
+         trend_sheep_noise = sens.slope(sheep_noise)$estimates,
+         min_wolves = min(wolves),
+         max_wolves = max(wolves),
+         sd_wolves = sd(wolves),
+         trend_wolves = sens.slope(wolves)$estimates,
+         mean_wolves_noise = mean(wolves_noise),
+         min_wolves_noise = min(wolves_noise),
+         max_wolves_noise = max(wolves_noise),
+         sd_wolves_noise = sd(wolves_noise),
+         trend_wolves_noise = sens.slope(wolves_noise)$estimates,
+         min_grass = min(grass),
+         max_grass = max(grass),
+         sd_grass = sd(grass),
+         trend_grass = sens.slope(grass)$estimates,
+         mean_grass_noise = mean(grass_noise),
+         min_grass_noise = min(grass_noise),
+         max_grass_noise = max(grass_noise),
+         sd_grass_noise = sd(grass_noise),
+         trend_grass_noise = sens.slope(grass_noise)$estimates) %>%
+  ungroup() %>%
+  # filter out the time steps of interest
+  filter(ticks %in% seq(from = 10, to = 500, by = 10))
+```
+Reshape data
+```{r}
+# extend all data to 500 ticks
+
+# new data frame to store extended data
+ws_summary_timesteps_new <- ws_summary_timesteps[1,]
+
+# per parameter combination
+for(i in unique(ws_summary_timesteps$combination_number)){
+  # extract data for parameter combination
+  work_with <- ws_summary_timesteps %>%
+    filter(combination_number == i)
+  
+  # if data contains less than 500 ticks
+  if(max(work_with$ticks) < 500){
+    # register last tick included
+    max_ticks <- max(work_with$ticks)
+    
+    # data to extend to 500 ticks
+    add_rows <- work_with %>%
+      filter(ticks == max_ticks)
+    
+    # ticks to add
+    add_ticks <- seq(from = max_ticks + 10, to = 500, by = 10)
+    
+    # to store new data
+    new_df <- add_rows
+    
+    # create data frame with last tick data, extending
+    # for all required ticks
+    for(i in 1:length(add_ticks)){
+      new_df <- bind_rows(new_df, add_rows)
+    }
+    
+    # set ticks to run until 500
+    new_df$ticks <- c(max_ticks, add_ticks)
+    # add original data to extended data
+    new_df <- bind_rows(work_with, new_df)
+    # to send back to complete dataframe
+    work_with <- new_df
+  }
+  # fill out new data frame with extended data
+  # or original data where it didn't need to be extended
+  ws_summary_timesteps_new <- bind_rows(ws_summary_timesteps_new, work_with)
+}
+# remove set-up data row
+ws_summary_timesteps_new <- ws_summary_timesteps_new[-1, ] %>%
+  distinct()
+
+# pivot wider so that each time step is a data column
+# each parameter combination will have 1 row of data
+ws_summary_timesteps <- ws_summary_timesteps_new %>%
+  filter(ticks %in% seq(from = 10, to = 500, by = 10)) %>%
+  pivot_wider(names_from = ticks,
+              values_from = c(sheep, wolves, grass,
+                              sheep_noise, wolves_noise, grass_noise))
+```
+
+Save all data frames:
+```{r}
+# complete data (for time series analysis)
+ws_summary %>%
+  write_csv(file = 'data/processed/wolfsheep_timeseries_training.csv')
+# time steps
+ws_summary_timesteps %>%
+  write_csv(file = 'data/processed/wolfsheep_timesteps_training.csv')
+```

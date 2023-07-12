@@ -42,8 +42,7 @@ Set seed:
 set.seed(42)
 ```
 
-# Running all possible parameter combinations
-Link to and start the Fire model:
+Link to and start the wolf-sheep-grass model:
 ```{python}
 netlogo = pyNetLogo.NetLogoLink(gui = True) # start netlogo
 
@@ -697,9 +696,7 @@ Stop running the python environment:
 quit
 ```
 
-###################  CONTINUE HERE ###############################
-
-# Split into training and test data
+# Summarise repeated runs
 Clear working directory:
 ```{r}
 rm(list = ls(all = TRUE))
@@ -750,22 +747,4 @@ for(i in 1:nrow(ws_summary)){
   
 ws_summary %>%
   write_csv(file = 'data/processed/wolfsheep_summary.csv')
-```
-
-Set up the training and test data:
-I'm using a 80 - 20 split.
-```{r}
-set.seed(42)
-
-ind <- sample(1:nrow(ws_output),
-              size = nrow(ws_output) * 0.2,
-              replace = FALSE)
-
-ws_output %>%
-  slice(ind) %>%
-  write_csv(file = 'data/processed/wolfsheep_test.csv')
-
-ws_output %>%
-  slice(-ind) %>%
-  write_csv(file = 'data/processed/wolfsheep_train.csv')
 ```
