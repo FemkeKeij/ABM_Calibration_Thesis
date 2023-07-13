@@ -181,8 +181,8 @@ p1_sheep <- numruns %>%
   geom_hline(yintercept = 1, colour = 'darkgreen') +
   geom_hline(yintercept = - 1, colour = 'darkgreen') +
   theme_minimal() +
-  labs(y = 'difference mean number of sheep',
-       caption = 'Difference in mean number of sheep when adding 1 run')
+  labs(x = 'runs added',
+       y = 'difference mean number of sheep')
 
 p2_sheep <- mean_conv_sheep %>%
   ggplot(mapping = aes(x = run)) +
@@ -209,8 +209,8 @@ p1_wolves <- numruns %>%
   geom_hline(yintercept = 1, colour = 'darkgreen') +
   geom_hline(yintercept = - 1, colour = 'darkgreen') +
   theme_minimal() +
-  labs(y = 'difference mean number of wolves',
-       caption = 'Difference in mean number of wolves when adding 1 run')
+  labs(x = 'runs added',
+       y = 'difference mean number of wolves')
 
 p2_wolves <- mean_conv_wolves %>%
   ggplot(mapping = aes(x = run)) +
@@ -237,8 +237,8 @@ p1_grass <- numruns %>%
   geom_hline(yintercept = 1, colour = 'darkgreen') +
   geom_hline(yintercept = - 1, colour = 'darkgreen') +
   theme_minimal() +
-  labs(y = 'difference mean number of grass',
-       caption = 'Difference in mean number of grass when adding 1 run')
+  labs(x = 'runs added',
+       y = 'difference mean number of grass')
 
 p2_grass <- mean_conv_grass %>%
   ggplot(mapping = aes(x = run)) +
@@ -308,8 +308,8 @@ p1_sheep <- numruns %>%
   geom_hline(yintercept = 0.1, colour = 'darkgreen') +
   geom_hline(yintercept = - 0.1, colour = 'darkgreen') +
   theme_minimal() +
-  labs(y = 'cv number of sheep',
-       caption = 'Difference in cv of sheep when adding 1 run')
+  labs(x = 'added runs',
+       y = 'cv number of sheep')
 
 p2_sheep <- cv_conv_sheep %>%
   ggplot(mapping = aes(x = run)) +
@@ -336,8 +336,8 @@ p1_wolves <- numruns %>%
   geom_hline(yintercept = 0.1, colour = 'darkgreen') +
   geom_hline(yintercept = - 0.1, colour = 'darkgreen') +
   theme_minimal() +
-  labs(y = 'difference cv of wolves',
-       caption = 'Difference in cv of wolves when adding 1 run')
+  labs(x = 'added runs',
+       y = 'difference cv of wolves')
 
 p2_wolves <- cv_conv_wolves %>%
   ggplot(mapping = aes(x = run)) +
@@ -364,8 +364,8 @@ p1_grass <- numruns %>%
   geom_hline(yintercept = 0.1, colour = 'darkgreen') +
   geom_hline(yintercept = - 0.1, colour = 'darkgreen') +
   theme_minimal() +
-  labs(y = 'difference cv of grass',
-       caption = 'Difference in cv of grass when adding 1 run')
+  labs(x = 'added runs',
+       y = 'difference cv of grass')
 
 p2_grass <- cv_conv_grass %>%
   ggplot(mapping = aes(x = run)) +
