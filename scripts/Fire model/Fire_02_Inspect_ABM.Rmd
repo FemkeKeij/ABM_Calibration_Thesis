@@ -1,0 +1,124 @@
+---
+title: "Fire_02_Explore_Model"
+author: "Femke Keij S2647168"
+date: '2022-07-21'
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+Clear working directory:
+```{r}
+rm(list = ls(all = TRUE)) 
+```
+
+Packages used:
+```{r}
+# for importing / working with tidy data
+library(tidyverse)
+
+# for arranging ggplots
+library(patchwork)
+
+# for ggplot aesthetics
+library(directlabels)
+library(RColorBrewer)
+```
+
+Random seed:
+```{r}
+set.seed(42)
+```
+
+Read in the data:
+```{r}
+# complete data set
+fire_output <- read_csv(
+  'data/raw/fire_output.csv')
+fire_output %>%
+  mutate(directions = replace(directions, directions == 4,
+                              "4 directions"),
+         directions = replace(directions, directions == 8,
+                              "8 directions")) -> fire_output
+
+# training data
+fire_train <- read_csv(
+  'data/processed/fire_train.csv')
+
+# test data
+fire_test <- read_csv(
+  'data/processed/fire_test.csv')
+
+# output data summary for model with 4 directions
+fire_summary <- read_csv(
+  'data/processed/fire_summary.csv')
+fire_summary %>%
+  mutate(directions = replace(directions, directions == 4,
+                              "4 directions"),
+         directions = replace(directions, directions == 8,
+                              "8 directions")) -> fire_summary
+```
+
+# Plots
+Parameter space plot:
+```{r}
+fire_summary %>%
+  ggplot(mapping = (aes(x = density, y = burned,
+                        group = directions,
+                        colour = directions))) +
+  labs(x = 'tree density (%)',
+       y = '% of burned trees at last tick') +
+  geom_path (linewidth = 1) +
+  geom_vline(aes(xintercept = 59), colour = 'dark green') +
+  geom_ribbon(aes(ymin = min, ymax = max,
+                  colour = directions), alpha = 0.3,) +
+  theme_minimal() +
+  theme(legend.position = 'none') +
+  geom_dl(aes(label = directions), method = 'extreme.grid') +
+  scale_color_brewer(type = 'qual') -> p1
+```
+
+Plot number of ticks against density:
+```{r}
+fire_output %>%
+  ggplot(mapping = aes(x = density, y = ticks, 
+                       colour = directions)) +
+  geom_point(aes(alpha = 0.5)) +
+  labs(x = 'tree density (%)',
+       y = 'number of ticks until fire extinguishes') +
+  theme_minimal() +
+  theme(legend.position = 'none') +
+  geom_dl(aes(label = directions), method = 'extreme.grid') +
+  scale_color_brewer(type = 'qual') -> p2
+```
+
+Plot both:
+```{r}
+p1 + p2
+
+ggsave('figures/fire_parameterspace.pdf')
+```
+
+# Summary statistics
+Some stats for the Fire model:
+```{r}
+summary(fire_output)
+```
+
+Check that the training and test data are similarly distributed:
+```{r}
+summary(fire_test)
+```
+
+```{r}
+summary(fire_train)
+```
+
+The medians for the burn percentages are different.
+```{r}
+par(mfrow = c(1,3))
+hist(fire_output$burn_percentage)
+hist(fire_test$burn_percentage)
+hist(fire_train$burn_percentage)
+```

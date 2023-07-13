@@ -1,5 +1,5 @@
 ---
-title: "WolfSheep_04_Training_SimpleRegression"
+title: "WolfSheep_05_Training_GAM"
 author: "Femke Keij S2647168"
 date: "2023-07-12"
 output: pdf_document
@@ -9,6 +9,8 @@ output: pdf_document
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
+
+# Preliminaries
 Clear working directory & set random seed:
 ```{r}
 rm(list = ls(all = TRUE))
@@ -37,12 +39,7 @@ ws_train <- read_csv('data/processed/wolfsheep_timesteps_training.csv')
 ```
 
 # Fitting with cross-validation
-We fit a separate regression for each input parameter. All output variables serve as predictors. We apply a 5-fold cross-validation, and obtain the error computations for each one. The errors are then averaged across the 5 folds.
-
-
-with and without noise
-10, 20, and 50 timesteps + last timestep only
-random vs. lhs sampling
+We fit a separate generalized additive model for each input parameter. All output variables serve as predictors. We apply a 5-fold cross-validation, and obtain the error computations for each one. The errors are then averaged across the 5 folds.
 
 Function to compute errors for continuous parameters:
 ```{r}
@@ -73,7 +70,9 @@ ComputeErrorsContinuous <- function(predicted, true,
 }
 ```
 
-Function to cross-validate linear regression
+Function to cross-validate generalized additive model
+##### CONTINUE HERE #######
+
 ```{r}
 WolfSheepSimpleRegression <- function(data,
                                       sampling_method,
@@ -95,12 +94,12 @@ WolfSheepSimpleRegression <- function(data,
   # for each cross-validation fold
   for(i in 1:5){
     # remove the test fold to create the training data
-    dat <- data %>%
+    dat <- ws_train %>%
       filter(!combination_number %in% unlist(flds[i])) %>%
       select(- combination_number)
   
     # obtain the test fold
-    dat_test <- data %>%
+    dat_test <- ws_train %>%
       filter(combination_number %in% unlist(flds[i])) %>%
       select(- combination_number)
   

@@ -1,5 +1,5 @@
 ---
-title: "WolfSheep_04_Training_SimpleRegression"
+title: "WolfSheep_06_Training_PLS"
 author: "Femke Keij S2647168"
 date: "2023-07-12"
 output: pdf_document
@@ -9,6 +9,8 @@ output: pdf_document
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
+
+# Preliminaries
 Clear working directory & set random seed:
 ```{r}
 rm(list = ls(all = TRUE))
@@ -28,6 +30,9 @@ library(ggbeeswarm)
 
 # for creating the cross-validation folds
 library(caret)
+
+# for partial least squares
+library(pls)
 ```
 
 Read in the data:
@@ -37,13 +42,6 @@ ws_train <- read_csv('data/processed/wolfsheep_timesteps_training.csv')
 ```
 
 # Fitting with cross-validation
-We fit a separate regression for each input parameter. All output variables serve as predictors. We apply a 5-fold cross-validation, and obtain the error computations for each one. The errors are then averaged across the 5 folds.
-
-
-with and without noise
-10, 20, and 50 timesteps + last timestep only
-random vs. lhs sampling
-
 Function to compute errors for continuous parameters:
 ```{r}
 ComputeErrorsContinuous <- function(predicted, true,
@@ -73,7 +71,7 @@ ComputeErrorsContinuous <- function(predicted, true,
 }
 ```
 
-Function to cross-validate linear regression
+Function to cross-validate partial least squares:
 ```{r}
 WolfSheepSimpleRegression <- function(data,
                                       sampling_method,
@@ -104,31 +102,27 @@ WolfSheepSimpleRegression <- function(data,
       filter(combination_number %in% unlist(flds[i])) %>%
       select(- combination_number)
   
-    # train the linear regressions
-    initial_sheep <- lm(formula = initial_number_sheep ~ .,
-                      data = dat)
-    initial_wolves <- lm(formula = initial_number_wolves ~ .,
-                       data = dat)
-    food_sheep <- lm(formula = sheep_gain_from_food ~ .,
-                     data = dat)
-    food_wolves <- lm(formula = wolves_gain_from_food ~ .,
-                    data = dat)
-    rep_sheep <- lm(formula = sheep_reproduce ~ .,
-                  data = dat)
-    rep_wolves <- lm(formula = wolves_reproduce ~ .,
-                   data = dat)
-    grass <- lm(formula = grass_regrowth ~ .,
-              data = dat)
-  
-    # predict the left-out fold
-    pred_initial_sheep <- predict(initial_sheep, data = dat_test)
-    pred_initial_wolves <- predict(initial_wolves, data = dat_test)
-    pred_food_sheep <- predict(food_sheep, data = dat_test)
-    pred_food_wolves <- predict(food_wolves, data = dat_test)
-    pred_rep_sheep <- predict(rep_sheep, data = dat_test)
-    pred_rep_wolves <- predict(rep_sheep, data = dat_test)
-    pred_grass <- predict(grass, data = dat_test)
+    # train the partial linear regressions
+    fit <- plsr(cbind(initial_number_sheep, initial_number_wolves, 
+                  sheep_gain_from_food, wolves_gain_from_food,
+                  sheep_reproduce, wolves_reproduce,
+                  grass_regrowth) ~ ., data = dat,
+                validation = 'LOO', scale = TRUE)
     
+    # cross-validation to determine number of components
+    # ncomp.cv <- crossval(fit)$ncomp
+    ncomp.cv = 3
+    
+    # predict test data using fitted PLS
+    pred <- predict(fit, newdata = dat_test, ncomp = ncomp.cv)
+    pred_initial_sheep <- pred[, 1, 1]
+    pred_initial_wolves <- pred[, 2, 1]
+    pred_food_sheep <- pred[, 3, 1]
+    pred_food_wolves <- pred[, 4, 1]
+    pred_rep_sheep <- pred[, 5, 1]
+    pred_rep_wolves <- pred[, 6, 1]
+    pred_grass <- pred[, 7, 1]
+  
     # compute mean input parameters in training data for
     # point prediction computation
     mean_initial_sheep <- mean(dat$initial_number_sheep)

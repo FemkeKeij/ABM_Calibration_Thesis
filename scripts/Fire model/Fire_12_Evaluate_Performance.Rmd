@@ -1,0 +1,564 @@
+---
+title: "Fire_13_Comparison"
+author: "Femke Keij S2647168"
+date: "2023-03-29"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Preliminaries
+Clear working directory & set random seed:
+```{r}
+rm(list = ls(all = TRUE))
+
+set.seed(42)
+```
+
+Packages used:
+```{r}
+# for importing / working with tidy data
+library(tidyverse)
+
+# for ggplot
+library(directlabels)
+library(patchwork)
+library(ggbeeswarm)
+```
+
+Data:
+```{r}
+lhs_errors <- read_csv('data/processed/fire_LHS_errors.csv')
+regression_errors <- read_csv('data/processed/fire_regression_errors.csv')
+piecewisereg_errors <- read_csv('data/processed/fire_piecewise_errors.csv')
+gam_errors <- read_csv('data/processed/fire_gam_errors.csv')
+elasticnet_errors <- read_csv('data/processed/fire_elasticnet_errors.csv')
+randomforest_errors <- read_csv('data/processed/fire_forest_errors.csv')
+pls_errors <- read_csv('data/processed/fire_partialleastsquares_errors.csv')
+mrf_errors <- read_csv('data/processed/fire_MultivariateRandomForest_errors.csv')
+# ABC
+# GA
+# Neural networks
+```
+
+Add column with method name:
+```{r}
+lhs_errors <- lhs_errors %>%
+  mutate(method = 'Latin Hypercube Sampling')
+regression_errors <- regression_errors %>%
+  mutate(method = 'Simple Linear and Logistic Regression')
+piecewisereg_errors <- piecewisereg_errors %>%
+  mutate(method = 'Piecewise Linear and Logistic Regression')
+gam_errors <- gam_errors %>%
+  mutate(method = 'Generalized Additive Model with Cubic Smoothing Spline')
+elasticnet_errors <- elasticnet_errors %>%
+  mutate(method = 'Elastic Net Regression')
+randomforest_errors <- randomforest_errors %>%
+  mutate(method = 'Regression and Classification Random Forest')
+pls_errors <- pls_errors %>%
+  mutate(method = 'Partial Least Squares Regression')
+mrf_errors <- mrf_errors %>%
+  mutate(method = 'Multivariate Random Forest')
+```
+
+Merge all data:
+```{r}
+errors <- bind_rows(lhs_errors, regression_errors, piecewisereg_errors,
+                    gam_errors, elasticnet_errors, randomforest_errors,
+                    pls_errors, mrf_errors)
+```
+
+Now, for each error metric, retrieve the best performance per algorithm, the sample size it was achieved for, and whether it was achieved with or without ticks.
+```{r}
+RetrieveBestPerformance <- function(errors, metric, opt){
+  # errors: data frame with error measurements
+  # metric: metric for which to retrieve best per method
+  # opt: how to determine which is best (min, max, or 95%)
+  
+  # set name for metric
+  optimal_metric <- str_c('optimal_', metric)
+  
+  # if higher indicates better
+  if(opt == 'max'){
+    errors_return <- errors %>%
+      # retrieve maximum per method
+      group_by(method) %>%
+      mutate(optimal_metric = max(get(metric))) %>%
+      ungroup() %>%
+      # keep only the best performance for each method
+      filter(get(metric) == optimal_metric) %>%
+      # keep method, sample size, ticks, and error measures
+      select(c('method', 'n', 'ticks_included', optimal_metric))
+    # if lower indicates better
+  } else if(opt == 'min'){
+    errors_return <- errors %>%
+      group_by(method) %>%
+      mutate(optimal_metric = min(get(metric))) %>%
+      ungroup() %>%
+      filter(get(metric) == optimal_metric) %>%
+      select(c('method', 'n', 'ticks_included', optimal_metric))
+    # if best performance is at 95% (coverage)
+  } else if(opt == '95'){
+    errors_return <- errors %>%
+      # find the coverage closest to 95% per method
+      group_by(method) %>%
+      mutate(optimal_metric = min(abs(get(metric) - 95))) %>%
+      ungroup() %>%
+      filter(abs(get(metric) - 95) == optimal_metric) %>%
+      select(c('method', 'n', 'ticks_included', optimal_metric))
+  }
+  
+  return(errors_return)
+}
+```
+
+```{r}
+errors_perc_correct_params <- 
+  RetrieveBestPerformance(errors, metric = 'perc_correct_params', opt = 'max')
+errors_perc_density_correct <- 
+  RetrieveBestPerformance(errors, metric = 'perc_density_correct', opt = 'max')
+errors_perc_direction_correct <- 
+  RetrieveBestPerformance(errors, metric = 'perc_direction_correct', opt = 'max')
+errors_perc_correct_cat_density <- 
+  RetrieveBestPerformance(errors, metric = 'perc_correct_cat_density', opt = 'max')
+errors_RMSE_density <- 
+  RetrieveBestPerformance(errors, metric = 'RMSE_density', opt = 'min')
+errors_NRMSE_density <- 
+  RetrieveBestPerformance(errors, metric = 'NRMSE_density', opt = 'min')
+errors_RMSE_burn <- 
+  RetrieveBestPerformance(errors, metric = 'RMSE_burn', opt = 'min')
+errors_NRMSE_burn <- 
+  RetrieveBestPerformance(errors, metric = 'NRMSE_burn', opt = 'min')
+errors_point_pred_performance_density <- 
+  RetrieveBestPerformance(errors, metric = 'point_pred_performance_density', opt = 'max')
+errors_direction_kappa <- 
+  RetrieveBestPerformance(errors, metric = 'direction_kappa', opt = 'max')
+errors_direction_f1 <- 
+  RetrieveBestPerformance(errors, metric = 'direction_f1', opt = 'max')
+errors_direction_mcc <-
+  RetrieveBestPerformance(errors, metric = 'direction_mcc', opt = 'max')
+errors_coverage_density <-
+  RetrieveBestPerformance(errors, metric = 'coverage_density', opt = '95')
+```
+
+# Plotted comparions
+Plot metrics for each method, indicate sample size and colour based on whether or not ticks were included:
+```{r}
+PlotErrorMetrics <- function(errors, ascending = TRUE,
+                             xlabel){
+  # errors: data frame containing
+    # n: sample size
+    # method: algorithm
+    # ...: metric
+    # ticks included: yes or no
+  # ascending: set to false if you want to display the values in descending order
+  # xlabel: label for the x-axis (metric displayed)
+  
+  # if higher = better, we want to plot higher scores at the top
+  # of the graph
+  if(ascending == TRUE){
+    p <- errors %>%
+      ggplot(mapping = aes(x = reorder(method, optimal_metric),
+                           y = optimal_metric,
+                           colour = ticks_included,
+                           group = factor(n)))
+    # if lower = better, we want to plot lower scores at the top of the graph
+  } else{
+     p <- errors %>%
+      ggplot(mapping = aes(x = reorder(method, - optimal_metric),
+                           y = optimal_metric,
+                           colour = ticks_included,
+                           group = factor(n)))
+  }
+  
+  p <- p +
+    # add points and lines to create lollipop plot
+    # dodging added for when a method has multiple highest scores
+    # for different sample sizes and/or yes/no ticks
+    geom_point(size = 10, position = position_dodge(width = 0.7)) +
+    geom_linerange(aes(x = method, ymin = 0, ymax = optimal_metric),
+                   position = position_dodge(width = 0.7)) +
+    # add text with sample size
+    geom_text(aes(label = n), color = "white", size = 3,
+              position = position_dodge(width = 0.9)) +
+    labs(x = NULL,
+         y = xlabel) +
+    # make sure graph starts at true 0
+    scale_y_continuous(expand = expansion(mult = c(0, 0.1)),
+                     limits = c(0, NA)) +
+    # aesthetics
+    labs(colour = 'ticks included') +
+    theme_minimal() +
+    theme(panel.grid.minor = element_blank()) +
+    # display methods on y axis and scores on x axis
+    coord_flip()
+  
+  return(p)
+}
+```
+
+Plot all error metrics.
+%-wise performance
+```{r}
+p1 <- PlotErrorMetrics(errors_perc_correct_params, ascending = TRUE,
+                 xlabel = '% correctly predicted parameter combinations')
+
+p2 <- PlotErrorMetrics(errors_perc_density_correct, ascending = TRUE,
+                 xlabel = '% correctly predicted density')
+
+p3 <- PlotErrorMetrics(errors_perc_direction_correct, ascending = TRUE,
+                 xlabel = '% correctly predicted directions')
+
+p4 <- PlotErrorMetrics(errors_perc_correct_cat_density, ascending = TRUE,
+                 xlabel = '% predicted density within 10% of true density')
+
+p1 + p2 + p3 + p4 +
+    plot_layout(guides = 'collect') +
+    plot_annotation(tag_levels = 'A') & 
+    theme(plot.tag = element_text(size = 8))
+```
+Metrics for density
+```{r}
+p1 <- PlotErrorMetrics(errors_RMSE_density, ascending = FALSE,
+                       xlabel = 'RMSE of true vs. predicted density')
+
+p2 <- PlotErrorMetrics(errors_NRMSE_density, ascending = FALSE,
+                       xlabel = 'NRMSE of true vs. predicted density')
+
+p3 <- PlotErrorMetrics(errors_point_pred_performance_density, ascending = TRUE,
+                       xlabel = 'point prediction performance for density')
+
+p4 <- PlotErrorMetrics(errors_coverage_density, ascending = TRUE,
+                       xlabel = 'coverage for density')
+
+p1 + p2 + p3 + p4 +
+    plot_layout(guides = 'collect') +
+    plot_annotation(tag_levels = 'A') & 
+    theme(plot.tag = element_text(size = 8))
+```
+Metrics for directions
+```{r}
+p1 <- PlotErrorMetrics(errors_direction_kappa, ascending = TRUE,
+                       xlabel = 'kappa score for directions')
+
+p2 <- PlotErrorMetrics(errors_direction_f1, ascending = TRUE,
+                       xlabel = 'F1 score for directions')
+
+p3 <- PlotErrorMetrics(errors_direction_mcc, ascending = TRUE,
+                       xlabel = "Matthew's correlation coefficient for directions")
+
+(p1 + p2) / p3 +
+    plot_layout(guides = 'collect') +
+    plot_annotation(tag_levels = 'A') & 
+    theme(plot.tag = element_text(size = 8))
+```
+Metrics for burn percentage
+```{r}
+p1 <- PlotErrorMetrics(errors_RMSE_burn, ascending = FALSE,
+                       xlabel = 'RMSE for % trees burned at last tick')
+
+p2 <- PlotErrorMetrics(errors_NRMSE_burn, ascending = FALSE,
+                       xlabel = 'NRMSE for % trees burned at last tick')
+
+p1 + p2 +
+  plot_layout(guides = 'collect') +
+  plot_annotation(tag_levels = 'A') & 
+  theme(plot.tag = element_text(size = 8))
+```
+
+# Which method performs best for each parameter
+Here I compute which method performs best for each error measure.
+```{r}
+# all error measures
+metrics_list <- c('perc_correct_params', 'perc_density_correct',
+                  'perc_direction_correct',
+                  'perc_correct_cat_density', 'RMSE_density', 'RMSE_burn',
+                  'point_pred_performance_density',
+                  'direction_kappa', 'direction_f1',
+                  'direction_mcc')
+metrics_opt <- c('max', 'max', 'max', 'max', 'min',
+                 'min', 'max', 'max', 'max', 'max')
+
+# tibble to store error measure, best method, sample size, inclusion of ticks, and actual value
+all_best <- tibble(metric = character(),
+                   method = character(),
+                   n = numeric(),
+                   ticks_included = character(),
+                   measure = numeric())
+
+# for each error measure
+for(i in 1:length(metrics_list)){
+  # see if we're interested in minimum or maximum score
+  if(metrics_opt[i] == 'max'){
+    # get appropriate data frame
+     winner <- get(str_c('errors_', metrics_list[i])) %>%
+       # find maximum score
+       mutate(max = max(optimal_metric)) %>%
+       ungroup() %>%
+       # keep only maximum score
+       filter(optimal_metric == max) %>%
+       # transform into appropriate format
+       mutate(metric = metrics_list[i]) %>%
+       select(c('metric', 'method', 'n', 'ticks_included', 'max')) %>%
+       rename('measure' = 'max')
+  } else{
+    winner <- get(str_c('errors_', metrics_list[i])) %>%
+      # find minimum score
+       mutate(min = min(optimal_metric)) %>%
+       ungroup() %>%
+       filter(optimal_metric == min) %>%
+       mutate(metric = metrics_list[i]) %>%
+       select(c('metric', 'method', 'n', 'ticks_included', 'min')) %>%
+       rename('measure' = 'min')
+  }
+  # add to tibble
+  all_best <- all_best %>%
+    add_row(winner)
+}
+
+View(all_best)
+```
+
+For density, see which method performs best:
+(I'm only including the RMSE and not the NRMSE because the NRMSE is calculated from the RMSE). I don't include the coverage because not every method produces it.
+```{r}
+all_best %>%
+  # find metics for density
+  filter(metric %in% c('perc_density_correct', 'perc_correct_cat_density',
+                       'RMSE_density', 'point_pred_performance_density')) %>%
+  # per method
+  group_by(method) %>%
+  # remove duplicates where a method performs 'best' for the same metric twice
+  distinct(metric, method) %>%
+  # count how many times each method performs best
+  summarise(n = n()) %>%
+  arrange(- n)
+```
+
+For directions, see which method performs best:
+```{r}
+all_best %>%
+  filter(metric %in% c('direction_kappa', 'direction_f1',
+                       'direction_mcc', 'perc_direction_correct')) %>%
+  group_by(method) %>%
+  distinct(metric, method) %>%
+  summarise(n = n()) %>%
+  arrange(- n)
+```
+
+For burn percentage, see which method performs best:
+```{r}
+all_best %>%
+  filter(metric %in% c('RMSE_burn')) %>%
+  group_by(method) %>%
+  distinct(metric, method) %>%
+  summarise(n = n()) %>%
+  arrange(- n)
+```
+
+Which method guesses most parameters correctly:
+```{r}
+all_best %>%
+  filter(metric %in% c('perc_correct_params')) %>%
+  group_by(method) %>%
+  distinct(metric, method) %>%
+  summarise(n = n()) %>%
+  arrange(- n)
+```
+
+# Makes fewest mistakes overall
+I rank the methods based on their performance for each metric (best ranks 1, second best ranks 2, etc.). Then I add up all the scores, the one with the lowest score performs the best overall.
+To make this a fair comparison, I use 4 error metrics for both directions and density. Methods that do really well on just the burn percentage are now at a distadvantage because there is only 1 metric for that.
+```{r}
+methods_ranking <- tibble(methods = character(),
+                          rank_score = numeric())
+
+for(i in 1:length(metrics_list)){
+  # if higher = better for metric of interest
+  if(metrics_opt[i] == 'max'){
+    # retrieve relevant data frame
+    add_ranks <- get(str_c('errors_', metrics_list[i])) %>%
+      # add ranks by descending order of metric
+      mutate(rank = dense_rank(desc(optimal_metric))) %>%
+      # keep method and rank columns
+      select(c('method', 'rank')) %>%
+      # remove duplicates of same method with same rank
+      distinct(method, rank)
+    # if lower = better for metric of interest
+  } else{
+    add_ranks <- get(str_c('errors_', metrics_list[i])) %>%
+      # add ranks by ascending order of metric
+      mutate(rank = dense_rank(optimal_metric)) %>%
+      select(c('method', 'rank')) %>%
+      # remove duplicates of same method with same rank
+      distinct(method, rank)
+  }
+  
+  # add ranks to data frame
+  methods_ranking <- methods_ranking %>%
+    bind_rows(add_ranks)
+}
+
+methods_ranking <- methods_ranking %>%
+  # per method
+  group_by(method) %>%
+  # add the ranks over all the metrics together
+  summarise(rank_score = sum(rank)) %>%
+  # display in ascending order (lower score = better)
+  arrange(rank_score)
+```
+So according to this measure, the GAM with cubic smoothing splines performs best, followed by the Latin Hypercube Sampling.
+
+# Averaged across sample sizes.
+All comparisons above rely heavily on selecting the optimal sample size. Here, I average the performance of each method over all sample sizes and then see which one is best that way.
+
+First, I make a new data frame with the performances averaged over the sample sizes:
+```{r}
+errors_average <- errors %>%
+  group_by(method, ticks_included) %>%
+  summarise_at(vars(metrics_list), mean)
+```
+
+Now compute which method performs best for each error measure
+```{r}
+# tibble to store error measure, best method, inclusion of ticks, and actual value
+# note that the sample size is no longer relevant here because
+# I averaged it out
+average_best <- tibble(metric = character(),
+                       method = character(),
+                       ticks_included = character(),
+                       measure = numeric())
+
+# for each error measure
+for(i in 1:length(metrics_list)){
+  # see if we're interested in minimum or maximum score
+  if(metrics_opt[i] == 'max'){
+    # get appropriate data
+    winner <- errors_average %>%
+      select(c('method', 'ticks_included', metrics_list[i])) %>%
+      ungroup() %>%
+      # find maximum score
+      mutate(max = max(get(metrics_list[i]))) %>%
+      # keep only maximum score
+      filter(get(metrics_list[i]) == max) %>%
+      # transform into appropriate format
+      mutate(metric = metrics_list[i]) %>%
+      select(c('metric', 'method', 'ticks_included', 'max')) %>%
+      rename('measure' = 'max')
+  } else{
+    # get appropriate data
+    winner <- errors_average %>%
+      select(c('method', 'ticks_included', metrics_list[i])) %>%
+      ungroup() %>%
+      # find minimum score
+      mutate(min = min(get(metrics_list[i]))) %>%
+      # keep only minimum score
+      filter(get(metrics_list[i]) == min) %>%
+      # transform into appropriate format
+      mutate(metric = metrics_list[i]) %>%
+      select(c('metric', 'method', 'ticks_included', 'min')) %>%
+      rename('measure' = 'min')
+  }
+  # add to tibble
+  average_best <- average_best %>%
+    add_row(winner)
+}
+
+View(average_best)
+```
+
+For density, see which method performs best on average:
+```{r}
+average_best %>%
+  # find metics for density
+  filter(metric %in% c('perc_density_correct', 'perc_correct_cat_density',
+                       'RMSE_density', 'point_pred_performance_density')) %>%
+  # per method
+  group_by(method) %>%
+  # count how many times each method performs best
+  summarise(n = n()) %>%
+  arrange(- n)
+```
+
+For directions, see which method performs best:
+```{r}
+average_best %>%
+  filter(metric %in% c('direction_kappa', 'direction_f1',
+                       'direction_mcc', 'perc_direction_correct')) %>%
+  group_by(method) %>%
+  summarise(n = n()) %>%
+  arrange(- n)
+```
+
+For burn percentage, see which method performs best:
+```{r}
+average_best %>%
+  filter(metric %in% c('RMSE_burn')) %>%
+  group_by(method) %>%
+  summarise(n = n()) %>%
+  arrange(- n)
+```
+
+Which method guesses most parameters correctly:
+```{r}
+average_best %>%
+  filter(metric %in% c('perc_correct_params')) %>%
+  group_by(method) %>%
+  distinct(metric, method) %>%
+  summarise(n = n()) %>%
+  arrange(- n)
+```
+
+Ranking similar to how it works for the non-averaged version.
+I rank the methods based on their performance for each metric (best ranks 1, second best ranks 2, etc.). Then I add up all the scores, the one with the lowest score performs the best overall.
+To make this a fair comparison, I use 4 error metrics for both directions and density. Methods that do really well on just the burn percentage are now at a distadvantage because there is only 1 metric for that.
+```{r}
+methods_averaged_ranking <- tibble(methods = character(),
+                                   rank_score = numeric())
+
+for(i in 1:length(metrics_list)){
+  # if higher = better for metric of interest
+  if(metrics_opt[i] == 'max'){
+    # retrieve relevant data frame
+    add_ranks <- errors_average %>%
+      select(c('method', 'ticks_included', metrics_list[i])) %>%
+      ungroup() %>%
+      # add ranks by descending order of metric
+      mutate(rank = dense_rank(desc(get(metrics_list[i])))) %>%
+      # keep method and rank columns
+      select(c('method', 'rank')) %>%
+      # remove duplicates of same method with same rank
+      distinct(method, rank)
+    # if lower = better for metric of interest
+  } else{
+    add_ranks <- errors_average %>%
+      select(c('method', 'ticks_included', metrics_list[i])) %>%
+      ungroup() %>%
+      # add ranks by descending order of metric
+      mutate(rank = dense_rank(get(metrics_list[i]))) %>%
+      # keep method and rank columns
+      select(c('method', 'rank')) %>%
+      # remove duplicates of same method with same rank
+      distinct(method, rank)
+  }
+  
+  # add ranks to data frame
+  methods_averaged_ranking <- methods_averaged_ranking %>%
+    bind_rows(add_ranks)
+}
+
+methods_averaged_ranking <- methods_averaged_ranking %>%
+  # per method
+  group_by(method) %>%
+  # add the ranks over all the metrics together
+  summarise(rank_score = sum(rank)) %>%
+  # display in ascending order (lower score = better)
+  arrange(rank_score)
+
+View(methods_averaged_ranking)
+```
+So according to this measure, the GAM with cubic smoothing splines performs best, followed by the Regression and Classification Random Forest.
+
+# Conclusion

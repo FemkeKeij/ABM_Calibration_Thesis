@@ -1,0 +1,448 @@
+---
+title: "Fire_05_Calibration_Splines"
+author: "Femke Keij S2647168"
+date: "2023-02-28"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Preliminaries
+Clear working directory & set random seed:
+```{r}
+rm(list = ls(all = TRUE))
+
+set.seed(42)
+```
+
+Packages used:
+```{r}
+# for importing / working with tidy data
+library(tidyverse)
+
+# for ggplot
+library(directlabels)
+library(patchwork)
+library(ggbeeswarm)
+
+# for fitting the GAM / splines
+library(mgcv)
+```
+
+Source files for error computation and plotting functions:
+```{r}
+source('scripts/Fire model/Fire_ErrorFunctions.R')
+```
+
+Read in the data:
+```{r}
+# complete output data
+fire_output <- read_csv('data/raw/fire_output.csv')
+
+# training data
+fire_train <- read_csv(
+  'data/processed/fire_train.csv')
+fire_train$directions <- as.factor(fire_train$directions)
+
+# test data
+fire_test <- read_csv(
+  'data/processed/fire_test.csv')
+fire_test$directions <- as.factor(fire_test$directions)
+```
+
+Random samples:
+5, 10, 20, 30, 40, 50, 60, 70, and 80 $%$ of the total parameter space.
+```{r}
+N <- nrow(fire_output)
+# range of (training) sample sizes to work with
+n <- c(0.05 * N, 0.1 * N, 0.2 * N, 0.3 * N, 0.4 * N, 0.5 * N,
+       0.6 * N, 0.7 * N, nrow(fire_train))
+```
+
+# Fitting
+Here I'm fitting a cubic smoothing spline to predict the density and directions. In order to also include all variables, I incorporate everything into a GAM.
+```{r}
+GamFitting <- function(ticks = FALSE){
+  # table to store all output
+  length_tib <- sum(nrow(fire_test) * length(n))
+  gam_results <- tibble(direction_true = numeric(length_tib),
+                              direction_pred = numeric(length_tib),
+                              density_true = numeric(length_tib),
+                              density_pred = numeric(length_tib),
+                              burn_true = numeric(length_tib),
+                              burn_pred = numeric(length_tib),
+                              n = numeric(length_tib),
+                              ticks_included = numeric(length_tib))
+  # vector to store mean density in each training sample
+  # (to calculate point prediction performance later on)
+  density_means <- numeric(length(n))
+  # list to store fitted GAMs
+  gam_fits <- list()
+
+  count <- 1
+  
+  # for each sample size
+  for(i in 1:length(n)){
+    # sample training set
+    ind_sample <- sample(1:nrow(fire_train), size = n[i])
+    fire_train_sub <- fire_train[ind_sample, ]
+    # calculate and save mean density in training set
+    density_means[i] <- mean(fire_train_sub$density)
+    
+    # determine number of knots
+    k_burn <- length(unique(round(fire_train_sub$burn_percentage)))
+    
+    if(ticks == TRUE){
+      # GAM to predict density when ticks are included
+      fit_gam_density <- gam(formula = density ~
+                              s(burn_percentage, bs = 'cr', k = k_burn) +
+                              factor(directions) + s(ticks),
+             data = fire_train_sub)
+      # GAM to predict directions when ticks are included
+      fit_gam_directions <- gam(formula = directions ~ density +
+                                  s(ticks) +
+                                  s(burn_percentage, bs = 'cr', k = k_burn),
+                                data = fire_train_sub, 
+                                family = binomial(link = 'logit'))
+      
+    } else{
+      # GAM to predict density when ticks are excluded
+      fit_gam_density <- gam(formula = density ~
+                              s(burn_percentage, bs = 'cr', k = k_burn) +
+                              factor(directions),
+             data = fire_train_sub)
+      # GAM to predict directions when ticks are excluded
+      fit_gam_directions <- gam(formula = directions ~ density +
+                                  s(burn_percentage, bs = 'cr', k = k_burn),
+                                data = fire_train_sub, 
+                                family = binomial(link = 'logit'))
+    }
+    # predict density in test data using fitted GAM
+    # include SEs to compute coverage later on
+    predict_gam_density <- predict.gam(fit_gam_density,
+                                       newdata = fire_test,
+                                       se.fit = TRUE)
+    # predict direction in test data using fitted regression
+    predict_gam_directions <- predict.gam(fit_gam_directions,
+                                          newdata = fire_test,
+                                          type = 'response')
+    # correct the predicted directions from '1' and '2' to '4' and '8'
+    # to match test data
+    for(k in 1:nrow(fire_test)){
+      if(predict_gam_directions[k] < 0.5){
+        predict_gam_directions[k] <- 4
+      } else{
+        predict_gam_directions[k] <- 8
+      }
+    }
+    
+    # for each instance of the test data
+    for(j in 1:nrow(fire_test)){
+      # find an instance in the training data that matches the directions
+      # and density
+      ind <- which(fire_train$density == round(predict_gam_density$fit[j]) &
+                     fire_train$directions ==
+                     predict_gam_directions[j])
+      # if there are multiple, pick one
+      if(length(ind) > 1){
+        ind <- sample(ind, size = 1)
+        # if there are none, increase density by 1 and see if there
+        # is a matching instance in the training data
+        # if not, continue until a matching instance is found
+      } else if (length(ind) == 0){
+        add <- 1
+        while(length(ind) != 1){
+          if(round(predict_gam_density$fit[j]) > 50){
+            add <- add * -1
+          }
+          ind <- which(fire_train$density ==
+                         (round(predict_gam_density$fit[j]) + add) &
+                     fire_train$directions ==
+                     predict_gam_directions[j])
+          if(length(ind) > 1){
+            ind <- sample(ind, size = 1)
+          }
+          add <- abs(add) + 1
+        }
+      }
+      # store all results in table
+      gam_results$direction_true[count] <- fire_test$directions[j]
+      gam_results$direction_pred[count] <-
+        predict_gam_directions[j]
+      gam_results$density_true[count] <- fire_test$density[j]
+      gam_results$density_pred[count] <- predict_gam_density$fit[j]
+      gam_results$burn_true[count] <- fire_test$burn_percentage[j]
+      gam_results$burn_pred[count] <- fire_train$burn_percentage[ind]
+      gam_results$n[count] <- n[i]
+      gam_results$ticks_included[count] <- if(ticks){'yes'}else{'no'}
+      
+      count <- count + 1
+    }
+    # store regression fit
+    gam_fits <- append(gam_fits, fit_gam_density)
+    gam_fits <- append(gam_fits, fit_gam_directions)
+    
+    print(paste('finished fitting sample size ', n[i]))
+  }
+  
+  # correct format of direction_true variable
+  gam_results %>%
+    mutate(direction_true = replace(direction_true, direction_true == 1, 4),
+         direction_true = replace(direction_true, direction_true == 2, 8)) ->
+    gam_results
+  
+  # return list with results, density means, and fitted regression lines
+  return(list(gam_results, density_means, gam_fits))
+}
+```
+
+```{r}
+# fit regressions with ticks
+gam_results_ticks <- GamFitting(ticks = TRUE)
+density_means_ticks <- gam_results_ticks[[2]]
+gam_fits_ticks <- gam_results_ticks[[3]]
+gam_results_ticks <- gam_results_ticks[[1]]
+
+# fit regressions without ticks
+gam_results_noticks <- GamFitting(ticks = FALSE)
+density_means_noticks <- gam_results_noticks[[2]]
+gam_fits_noticks <- gam_results_noticks[[3]]
+gam_results_noticks <- gam_results_noticks[[1]]
+```
+
+```{r}
+# run error calculations
+gam_errors_ticks <- ComputeErrors(gam_results_ticks,
+                                         ticks = TRUE,
+                                         density_means_ticks,
+                                         pred_int_included = FALSE)
+gam_errors_noticks <- ComputeErrors(gam_results_noticks,
+                                           ticks = FALSE,
+                                           density_means_noticks,
+                                           pred_int_included = FALSE)
+```
+
+Merge results
+```{r}
+gam_results <- rbind(gam_results_noticks,
+                            gam_results_ticks)
+write_csv(gam_results, 'data/processed/fire_gam_results.csv')
+
+gam_errors <- rbind(gam_errors_noticks, gam_errors_ticks)
+write_csv(gam_errors, 'data/processed/fire_gam_errors.csv')
+``` 
+
+# Plots
+```{r}
+# gam_results <- read_csv('data/processed/fire_gam_results.csv')
+# gam_errors <- read_csv('data/processed/fire_gam_errors.csv')
+```
+
+## Errors
+Fix results and errors data frames:
+```{r}
+gam_results <- gam_results %>%
+  mutate(n = factor(n),
+         direction_true = factor(direction_true),
+         direction_pred = factor(direction_pred),
+         direction_correct = (direction_pred == direction_true))
+
+gam_errors <- gam_errors %>%
+  mutate(n = factor(n))
+```
+
+### Predicted vs. true
+Predicted vs. true for density, directions, and burn percentage
+```{r}
+p1 <- PlotPredTrueDensity(gam_results, n = 1584)
+p2 <- PlotPredTrueDirection(gam_results, n = 1584)
+p3 <- PlotPredTrueBurn(gam_results, n = 1584)
+
+p1 / p2 / p3
+```
+Predicted vs. true density (largest sample size only):
+```{r}
+PlotPredTrueDensity(gam_results, n = 1584)
+
+ggsave('figures/fire_GAM_predtrue_density.pdf')
+```
+Confusion matrix for predicted vs. true directions:
+```{r}
+PlotPredTrueDirection(gam_results, n = 1584)
+
+ggsave('figures/fire_GAM_predtrue_direction.pdf')
+```
+Predicted vs. true burn percentage (largest sample size only):
+```{r}
+PlotPredTrueBurn(gam_results, n = 1584)
+
+ggsave('figures/fire_GAM_predtrue_burn.pdf')
+```
+### Parameters
+% correctly predicted parameters (density & directions):
+```{r}
+PlotPercCorrectParams(gam_errors, n_plot = c(99, 792, 1584))
+
+ggsave('figures/fire_GAM_perc_correct.pdf')
+```
+RMSE, NRMSE, point prediction performance, and coverage for density parameter:
+```{r}
+PlotErrorsDensity(gam_errors, n_plot = c(99, 792, 1584))
+
+ggsave('figures/fire_GAM_density_metrics.pdf')
+```
+F1, kappa score, and MCC for directions:
+```{r}
+PlotErrorsDirections(gam_errors, n_plot = c(99, 792, 1584))
+
+ggsave('figures/fire_GAM_directions_metrics.pdf')
+```
+### Outcome variable
+RMSE for burn percentage:
+```{r}
+PlotRMSEOut(gam_errors, n_plot = c(99, 792, 1584))
+
+ggsave('figures/fire_GAM_RMSE_burn.pdf')
+```
+
+## Model fit
+```{r}
+library(voxel)
+```
+For density
+```{r}
+fit_gam_density_noticks <- gam(formula = density ~
+                         s(burn_percentage, bs = 'cr', k = 68) +
+                         directions,
+                       data = fire_train)
+
+fit_gam_density_ticks <- gam(formula = density ~
+                         s(burn_percentage, bs = 'cr', k = 68) +
+                         directions + ticks,
+                       data = fire_train)
+
+p1 <- plotGAM(fit_gam_density_noticks,
+              smooth.cov = 'burn_percentage',
+              groupCovs = 'directions') +
+  labs(y = NULL,
+       x = 'cubic smoothed spline for burn percentage',
+       title = NULL) +
+  geom_point(data = fire_train, mapping = aes(x = burn_percentage,
+                                              y = density,
+                                              colour = directions),
+             size = 1, alpha = 0.2) +
+  theme_minimal() +
+  theme(panel.grid.minor = element_blank(),
+        panel.border = element_rect(colour = 'lightgrey', fill = NA)) +
+  coord_flip() +
+  ggtitle('no ticks')
+
+p2 <- plotGAM(fit_gam_density_ticks,
+              smooth.cov = 'burn_percentage',
+              groupCovs = 'directions') +
+  labs(y = NULL,
+       x = 'cubic smoothing spline for burn percentage',
+       title = NULL) +
+  geom_point(data = fire_train, mapping = aes(x = burn_percentage,
+                                              y = density,
+                                              colour = directions),
+             size = 1, alpha = 0.2) +
+  theme_minimal() +
+  theme(panel.grid.minor = element_blank(),
+        panel.border = element_rect(colour = 'lightgrey', fill = NA)) +
+  coord_flip() +
+  ggtitle('ticks')
+
+patch <- p1 + p2 +
+    plot_layout(guides = 'collect') +
+    plot_annotation(tag_levels = 'A') & 
+    theme(plot.tag = element_text(size = 8))
+  
+wrap_elements(panel = patch) +
+  labs(tag = 'tree density (%)') +
+  theme(plot.tag = element_text(size = rel(1)),
+        plot.tag.position = 'bottom')
+
+ggsave('figures/fire_gam_density_fit.pdf')
+```
+
+For directions
+NOTE THAT THE ESTIMATION HERE IS ABOUT THE TRAINING DATA, NOT THE TEST DATA. THIS IS TO SHOW THE FIT, NOT THE PREDICTIVE POWER.
+```{r}
+fit_gam_directions_noticks <- gam(formula = directions ~ density +
+                                    s(burn_percentage, bs = 'cr',
+                                    k = 68),
+                                data = fire_train, 
+                                family = binomial(link = 'logit'))
+
+pred_gam_directions_noticks <- predict.gam(fit_gam_directions_noticks,
+                                           type = 'response')
+for(i in 1:length(pred_gam_directions_noticks)){
+  if(pred_gam_directions_noticks[i] < 0.5){
+    pred_gam_directions_noticks[i] <- 4
+  } else{
+    pred_gam_directions_noticks[i] <- 8
+  }
+}
+
+dat_noticks <- data.frame(density = fire_train$density,
+                  burn_percentage = fire_train$burn_percentage,
+                  directions_true = fire_train$directions)
+
+dat_noticks <- dat_noticks %>%
+  mutate(directions_correct = (directions_true == pred_gam_directions_noticks))
+
+p1 <- dat_noticks %>%
+  ggplot(mapping = aes(x = density, y = burn_percentage,
+                       colour = directions_correct)) +
+  geom_point() +
+  labs(colour = 'directions estimated \n correctly',
+       x = NULL,
+       y = 'burn percentage')
+
+fit_gam_directions_ticks <- gam(formula = directions ~ density +
+                                    s(burn_percentage, bs = 'cr',
+                                    k = 68) + ticks,
+                                data = fire_train, 
+                                family = binomial(link = 'logit'))
+
+pred_gam_directions_ticks <- predict.gam(fit_gam_directions_ticks,
+                                           type = 'response')
+for(i in 1:length(pred_gam_directions_ticks)){
+  if(pred_gam_directions_ticks[i] < 0.5){
+    pred_gam_directions_ticks[i] <- 4
+  } else{
+    pred_gam_directions_ticks[i] <- 8
+  }
+}
+
+dat_ticks <- data.frame(density = fire_train$density,
+                  burn_percentage = fire_train$burn_percentage,
+                  directions_true = fire_train$directions)
+
+dat_ticks <- dat_ticks %>%
+  mutate(directions_correct = (directions_true == pred_gam_directions_noticks))
+
+p2 <- dat_ticks %>%
+  ggplot(mapping = aes(x = density, y = burn_percentage,
+                       colour = directions_correct)) +
+  geom_point() +
+  labs(colour = 'directions estimated \n correctly',
+       x = NULL,
+       y = 'burn percentage')
+
+patch <- p1 + p2 +
+    plot_layout(guides = 'collect') +
+    plot_annotation(tag_levels = 'A') & 
+    theme(plot.tag = element_text(size = 8)) &
+    xlab(NULL)
+  
+wrap_elements(panel = patch) +
+  labs(tag = 'tree density (%)') +
+  theme(plot.tag = element_text(size = rel(1)),
+        plot.tag.position = 'bottom')
+
+ggsave('figures/fire_gam_directions_fit.pdf')
+```

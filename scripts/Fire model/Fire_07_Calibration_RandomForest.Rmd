@@ -1,7 +1,7 @@
 ---
-title: "Fire_07_Calibration_RandomForest"
+title: "Fire_09_MultivariateRandomForest"
 author: "Femke Keij S2647168"
-date: "2023-02-14"
+date: "2023-03-21"
 output: pdf_document
 ---
 
@@ -27,8 +27,8 @@ library(directlabels)
 library(patchwork)
 library(ggbeeswarm)
 
-# for fitting the random forest
-library(randomForest)
+# for multivariate random forest
+library(MultivariateRandomForest)
 ```
 
 Source files for error computation and plotting functions:
@@ -62,12 +62,44 @@ n <- c(0.05 * N, 0.1 * N, 0.2 * N, 0.3 * N, 0.4 * N, 0.5 * N,
 ```
 
 # Fitting
-Here I'm fitting a random forest to predict density and direction.
 ```{r}
-RandomForestFitting <- function(ticks = FALSE){
+testX <- cbind(fire_test$burn_percentage, fire_test$ticks)
+
+Y <- cbind(fire_train$density, fire_train$directions)
+colnames(Y) <- c('density', 'directions')
+Y <- as.data.frame(Y) %>%
+  mutate(true_four = ifelse(directions == 1, 1, 0),
+         true_eight = ifelse(directions == 2, 1, 0)) %>%
+  select(c('density', 'true_four'))
+Y <- as.matrix(Y)
+X <- cbind(fire_train$burn_percentage, fire_train$ticks)
+
+fit20 <- build_forest_predict(trainX = X, trainY = Y, n_tree = 20,
+                     m_feature = 1, min_leaf = 5, testX = testX)
+```
+
+
+```{r, eval = FALSE}
+Y <- cbind(fire_train$density, fire_train$directions)
+colnames(Y) <- c('density', 'directions')
+Y <- as.data.frame(Y) %>%
+  mutate(true_four = ifelse(directions == 1, 1, 0),
+         true_eight = ifelse(directions == 2, 1, 0)) %>%
+  select(c('density', 'true_four'))
+Y <- as.matrix(Y)
+
+X <- cbind(fire_train$burn_percentage, rep(0, nrow(fire_train)))
+testX <- cbind(fire_test$burn_percentage, rep(0, nrow(fire_test)))
+# fit random forest and predict test data
+pred <- build_forest_predict(trainX = X, trainY = Y, n_tree = 20,
+                             m_feature = 1, min_leaf = 5, testX = testX)
+```
+
+```{r}
+MRFFitting <- function(ticks = FALSE){
   # table to store all output
   length_tib <- sum(nrow(fire_test) * length(n))
-  forest_results <- tibble(direction_true = numeric(length_tib),
+  mrf_results <- tibble(direction_true = numeric(length_tib),
                               direction_pred = numeric(length_tib),
                               density_true = numeric(length_tib),
                               density_pred = numeric(length_tib),
@@ -78,8 +110,6 @@ RandomForestFitting <- function(ticks = FALSE){
   # vector to store mean density in each training sample
   # (to calculate point prediction performance later on)
   density_means <- numeric(length(n))
-  # list to store fitted Elastic Nets
-  forest_fits <- list()
 
   count <- 1
   
@@ -91,317 +121,193 @@ RandomForestFitting <- function(ticks = FALSE){
     # calculate and save mean density in training set
     density_means[i] <- mean(fire_train_sub$density)
     
+    # set up output data
+    Y <- cbind(fire_train_sub$density, fire_train_sub$directions)
+    colnames(Y) <- c('density', 'directions')
+    Y <- as.data.frame(Y) %>%
+      mutate(true_four = ifelse(directions == 1, 1, 0),
+             true_eight = ifelse(directions == 2, 1, 0)) %>%
+      select(c('density', 'true_four'))
+    Y <- as.matrix(Y)
+    
     if(ticks == TRUE){
-      # random forest to predict density when ticks are included
-      fit_forest_density <- randomForest(density ~ burn_percentage +
-                                            directions + ticks,
-                                          data = fire_train_sub)
-      # random forest to predict directions when ticks are included
-      fit_forest_directions <- randomForest(directions ~ burn_percentage +
-                                               density + ticks,
-                                             data = fire_train_sub)
-      
+      # multivariate random forest to predict density and direction 
+      # by ticks and burn percentage
+      # set up predictor and test variables
+      X <- cbind(fire_train_sub$burn_percentage, fire_train_sub$ticks)
+      testX <- cbind(fire_test$burn_percentage, fire_test$ticks)
+      # fit random forest and predict test data
+      pred <- build_forest_predict(trainX = X, trainY = Y, n_tree = 20,
+                     m_feature = 1, min_leaf = 5, testX = testX)
     } else{
-      # random forest to predict density when ticks are excluded
-      fit_forest_density <- randomForest(density ~ burn_percentage +
-                                           directions,
-                                         data = fire_train_sub)
-      # random forest to predict directions when ticks are excluded
-      fit_forest_directions <- randomForest(directions ~ burn_percentage +
-                                              density,
-                                            data = fire_train_sub)
+      # multivariate random forest to predict density and direction 
+      # by burn percentage
+      # set up predictor and test variables
+      X <- cbind(fire_train_sub$burn_percentage, rep(0, nrow(fire_train_sub)))
+      testX <- cbind(fire_test$burn_percentage, rep(0, nrow(fire_test)))
+      # fit random forest and predict test data
+      pred <- build_forest_predict(trainX = X, trainY = Y, n_tree = 20,
+                     m_feature = 1, min_leaf = 5, testX = testX)
     }
-    # predict density in test data using fitted random forest
-    predict_forest_density <- predict(fit_forest_density,
-                                       newdata = fire_test)
-    # predict direction in test data using fitted random forest
-    predict_forest_directions <- predict(fit_forest_directions,
-                                          newdata = fire_test)
+    # correct the predicted directions from probabilities to '4' and '8'
+    # to match test data
+    for(k in 1:nrow(fire_test)){
+      if(pred[,2][k] < 0.5){
+        pred[,2][k] <- 4
+      } else{
+        pred[,2][k] <- 8
+      }
+    }
     
     # for each instance of the test data
     for(j in 1:nrow(fire_test)){
       # find an instance in the training data that matches the directions
       # and density
-      ind <- which(fire_train$density == round(predict_forest_density[j]) &
+      ind <- which(fire_train$density == round(pred[j,1]) &
                      fire_train$directions ==
-                     predict_forest_directions[j])
-      # if there are multiple, pick one
+                     pred[j,2])
       if(length(ind) > 1){
         ind <- sample(ind, size = 1)
-        # if there are none, increase density by 1 and see if there
-        # is a matching instance in the training data
-        # if not, continue until a matching instance is found
-      } else if (length(ind) == 0){
-        add <- 1
-        while(length(ind) != 1){
-          if(round(predict_forest_density[j]) > 50){
-            add <- add * -1
-          }
-          ind <- which(fire_train$density ==
-                         (round(predict_forest_density[j]) + add) &
-                     fire_train$directions ==
-                     predict_forest_directions[j])
-          if(length(ind) > 1){
-            ind <- sample(ind, size = 1)
-          }
-          add <- abs(add) + 1
-        }
       }
+      # find predicted burn percentage based on training data
+      burn_pred <- fire_train$burn_percentage[ind]
+      
       # store all results in table
-      forest_results$direction_true[count] <- fire_test$directions[j]
-      forest_results$direction_pred[count] <-
-        predict_forest_directions[j]
-      forest_results$density_true[count] <- fire_test$density[j]
-      forest_results$density_pred[count] <- predict_forest_density[j]
-      forest_results$burn_true[count] <- fire_test$burn_percentage[j]
-      forest_results$burn_pred[count] <- fire_train$burn_percentage[ind]
-      forest_results$n[count] <- n[i]
-      forest_results$ticks_included[count] <- if(ticks){'yes'}else{'no'}
+      mrf_results$direction_true[count] <- fire_test$directions[j]
+      mrf_results$direction_pred[count] <-
+        pred[j, 2]
+      mrf_results$density_true[count] <- fire_test$density[j]
+      mrf_results$density_pred[count] <- pred[j,1]
+      mrf_results$burn_true[count] <- fire_test$burn_percentage[j]
+      mrf_results$burn_pred[count] <- burn_pred
+      mrf_results$n[count] <- n[i]
+      mrf_results$ticks_included[count] <- if(ticks){'yes'}else{'no'}
       
       count <- count + 1
     }
-    # store regression fit
-    forest_fits <- append(forest_fits, fit_forest_density)
-    forest_fits <- append(forest_fits, fit_forest_directions)
     
-    print(paste('finished fitting sample size ', n[i]))
+    print(c('finished running sample size', n[i]))
   }
   
   # correct format of direction_true variable
-  forest_results %>%
+  mrf_results %>%
     mutate(direction_true = replace(direction_true, direction_true == 1, 4),
-         direction_true = replace(direction_true, direction_true == 2, 8),
-         direction_pred = replace(direction_pred, direction_pred == 1, 4),
-         direction_pred = replace(direction_pred, direction_pred == 2, 8)) ->
-    forest_results
+         direction_true = replace(direction_true, direction_true == 2, 8)) ->
+    mrf_results
   
-  # return list with results, density means, and fitted random forests
-  return(list(forest_results, density_means, forest_fits))
+  # return table with results, density means, and fitted regression values
+  return(list(mrf_results, density_means))
 }
 ```
 
+The one without ticks isn't currently working.
 ```{r}
 # fit regressions with ticks
-forest_results_ticks <- RandomForestFitting(ticks = TRUE)
-density_means_ticks <- forest_results_ticks[[2]]
-forest_fits_ticks <- forest_results_ticks[[3]]
-forest_results_ticks <- forest_results_ticks[[1]]
+mrf_results_ticks <- MRFFitting(ticks = TRUE)
+density_means_ticks <- mrf_results_ticks[[2]]
+mrf_results_ticks <- mrf_results_ticks[[1]]
 
 # fit regressions without ticks
-forest_results_noticks <- RandomForestFitting(ticks = FALSE)
-density_means_noticks <- forest_results_noticks[[2]]
-forest_fits_noticks <- forest_results_noticks[[3]]
-forest_results_noticks <- forest_results_noticks[[1]]
+mrf_results_noticks <- MRFFitting(ticks = FALSE)
+density_means_noticks <- mrf_results_noticks[[2]]
+mrf_results_noticks <- mrf_results_noticks[[1]]
 ```
 
 ```{r}
 # run error calculations
-forest_errors_ticks <- ComputeErrors(forest_results_ticks,
-                                         ticks = TRUE,
-                                         density_means_ticks,
-                                         pred_int_included = FALSE)
-forest_errors_noticks <- ComputeErrors(forest_results_noticks,
-                                           ticks = FALSE,
-                                           density_means_noticks,
-                                           pred_int_included = FALSE)
+mrf_errors_ticks <- ComputeErrors(mrf_results_ticks,
+                                  ticks = TRUE,
+                                  density_means = density_means_ticks,
+                                  pred_int_included = FALSE)
+mrf_errors_noticks <- ComputeErrors(mrf_results_noticks,
+                                    ticks = FALSE,
+                                    density_means = density_means_noticks,
+                                    pred_int_included = FALSE)
 ```
 
 Merge results
 ```{r}
-forest_results <- rbind(forest_results_noticks,
-                            forest_results_ticks)
-write_csv(forest_results, 'data/processed/fire_forest_results.csv')
+mrf_results <- rbind(mrf_results_noticks,
+                     mrf_results_ticks)
+write_csv(mrf_results,
+          'data/processed/fire_MultivariateRandomForest_results.csv')
 
-forest_errors <- rbind(forest_errors_noticks, forest_errors_ticks)
-write_csv(forest_errors, 'data/processed/fire_forest_errors.csv')
-``` 
+mrf_errors <- rbind(mrf_errors_noticks, mrf_errors_ticks)
+write_csv(mrf_errors,
+          'data/processed/fire_MultivariateRandomForest_errors.csv')
+```
 
 # Plots
 ```{r}
-# forest_results <- read_csv('data/processed/fire_forest_results.csv')
-# forest_errors <- read_csv('data/processed/fire_forest_errors.csv')
+# mrf_results <- read_csv('data/processed/fire_MultivariateRandomForest_results.csv')
+
+# mrf_errors <- read_csv('data/processed/fire_MultivariateRandomForest_errors.csv')
 ```
 
 ## Errors
 Fix results and errors data frames:
 ```{r}
-forest_results <- forest_results %>%
+mrf_results <- mrf_results %>%
   mutate(n = factor(n),
          direction_true = factor(direction_true),
          direction_pred = factor(direction_pred),
          direction_correct = (direction_pred == direction_true))
 
-forest_errors <- forest_errors %>%
+mrf_errors <- mrf_errors %>%
   mutate(n = factor(n))
 ```
-
 ### Predicted vs. true
 Predicted vs. true for density, directions, and burn percentage
 ```{r}
-p1 <- PlotPredTrueDensity(forest_results, n = 1584)
-p2 <- PlotPredTrueDirection(forest_results, n = 1584)
-p3 <- PlotPredTrueBurn(forest_results, n = 1584)
+p1 <- PlotPredTrueDensity(mrf_results, n = 1584)
+p2 <- PlotPredTrueDirection(mrf_results, n = 1584)
+p3 <- PlotPredTrueBurn(mrf_results, n = 1584)
 
 p1 / p2 / p3
 ```
 Predicted vs. true density (largest sample size only):
 ```{r}
-PlotPredTrueDensity(forest_results, n = 1584)
+PlotPredTrueDensity(mrf_results, n = 1584)
 
-ggsave('figures/fire_randomforest_predtrue_density.pdf')
+ggsave('figures/fire_MRF_predtrue_density.pdf')
 ```
 Confusion matrix for predicted vs. true directions:
 ```{r}
-PlotPredTrueDirection(forest_results, n = 1584)
+PlotPredTrueDirection(mrf_results, n = 1584)
 
-ggsave('figures/fire_randomforest_predtrue_direction.pdf')
+ggsave('figures/fire_MRF_predtrue_direction.pdf')
 ```
 Predicted vs. true burn percentage (largest sample size only):
 ```{r}
-PlotPredTrueBurn(forest_results, n = 1584)
+PlotPredTrueBurn(mrf_results, n = 1584)
 
-ggsave('figures/fire_randomforest_predtrue_burn.pdf')
+ggsave('figures/fire_MRF_predtrue_burn.pdf')
 ```
 ### Parameters
 % correctly predicted parameters (density & directions):
 ```{r}
-PlotPercCorrectParams(forest_errors, n_plot = c(99, 792, 1584))
+PlotPercCorrectParams(mrf_errors, n_plot = c(99, 792, 1584))
 
-ggsave('figures/fire_randomforest_perc_correct.pdf')
+ggsave('figures/fire_MRF_perc_correct.pdf')
 ```
 RMSE, NRMSE, point prediction performance, and coverage for density parameter:
 ```{r}
-PlotErrorsDensity(forest_errors, n_plot = c(99, 792, 1584))
+PlotErrorsDensity(mrf_errors, n_plot = c(99, 792, 1584))
 
-ggsave('figures/fire_randomforest_density_metrics.pdf')
+ggsave('figures/fire_MRF_density_metrics.pdf')
 ```
 F1, kappa score, and MCC for directions:
 ```{r}
-PlotErrorsDirections(forest_errors, n_plot = c(99, 792, 1584))
+PlotErrorsDirections(mrf_errors, n_plot = c(99, 792, 1584))
 
-ggsave('figures/fire_randomforest_directions_metrics.pdf')
+ggsave('figures/fire_MRF_directions_metrics.pdf')
 ```
 ### Outcome variable
 RMSE for burn percentage:
 ```{r}
-PlotRMSEOut(forest_errors, n_plot = c(99, 792, 1584))
+PlotRMSEOut(mrf_errors, n_plot = c(99, 792, 1584))
 
-ggsave('figures/fire_randomforest_RMSE_burn.pdf')
+ggsave('figures/fire_MRF_RMSE_burn.pdf')
 ```
 
 ## Model fit
-Variable importance plots for density & directions
-```{r}
-fit_forest_density_noticks <- randomForest(density ~ burn_percentage +
-                                            directions,
-                                          data = fire_train,
-                                   importance = TRUE)
-
-imp_noticks <- as.data.frame(varImpPlot(fit_forest_density_noticks))
-imp_noticks$varNames <- rownames(imp_noticks) # row names to column
-colnames(imp_noticks) <- c('percIncMSE', 'IncNodePurity', 'varNames')
-
-p1 <- imp_noticks %>%
-  ggplot(aes(x = varNames,
-             weight = percIncMSE, y = percIncMSE,
-             colour = varNames)) +
-  geom_point(size = 3) +
-  geom_segment(aes(x = varNames, xend = varNames, y = 0, yend = percIncMSE),
-               linewidth = 1.5) +
-  labs(y = '% increase MSE when removing variable',
-       x = NULL) +
-  ylim(0, 50) +
-  theme_minimal() +
-  theme(panel.grid.minor = element_blank(),
-        panel.border = element_rect(colour = 'lightgrey', fill = NA),
-        legend.position = 'none') +
-  ggtitle('Density, no ticks')
-
-fit_forest_density_ticks <- randomForest(density ~ burn_percentage +
-                                            directions + ticks,
-                                          data = fire_train,
-                                   importance = TRUE)
-
-imp_ticks <- as.data.frame(varImpPlot(fit_forest_density_ticks))
-imp_ticks$varNames <- rownames(imp_ticks) # row names to column
-colnames(imp_ticks) <- c('percIncMSE', 'IncNodePurity', 'varNames')
-
-p2 <- imp_ticks %>%
-  ggplot(aes(x = varNames,
-             weight = percIncMSE, y = percIncMSE,
-             colour = varNames)) +
-  geom_point(size = 3) +
-  geom_segment(aes(x = varNames, xend = varNames, y = 0, yend = percIncMSE),
-               linewidth = 1.5) +
-  labs(y = '% increase MSE when removing variable',
-       x = NULL) +
-  ylim(0, 50) +
-  theme_minimal() +
-  theme(panel.grid.minor = element_blank(),
-        panel.border = element_rect(colour = 'lightgrey', fill = NA),
-        legend.position = 'none') +
-  ggtitle('Density, ticks')
-
-fit_forest_directions_noticks <- randomForest(directions ~ burn_percentage +
-                                            density,
-                                          data = fire_train,
-                                   importance = TRUE)
-
-imp_directions_noticks <-
-  as.data.frame(varImpPlot(fit_forest_directions_noticks))
-imp_directions_noticks$varNames <- 
-  rownames(imp_directions_noticks) # row names to column
-colnames(imp_directions_noticks) <- c('percIncMSE', 'IncNodePurity',
-                                      'varNames')
-
-p3 <- imp_directions_noticks %>%
-  ggplot(aes(x = varNames,
-             weight = percIncMSE, y = percIncMSE,
-             colour = varNames)) +
-  geom_point(size = 3) +
-  geom_segment(aes(x = varNames, xend = varNames, y = 0, yend = percIncMSE),
-               linewidth = 1.5) +
-  labs(y = '% increase MSE when removing variable',
-       x = NULL) +
-  ylim(0, 375) +
-  theme_minimal() +
-  theme(panel.grid.minor = element_blank(),
-        panel.border = element_rect(colour = 'lightgrey', fill = NA),
-        legend.position = 'none') +
-  ggtitle('Directions, no ticks')
-
-fit_forest_directions_ticks <- randomForest(directions ~ burn_percentage +
-                                            density + ticks,
-                                          data = fire_train,
-                                   importance = TRUE)
-
-imp_directions_ticks <- as.data.frame(varImpPlot(fit_forest_directions_ticks))
-imp_directions_ticks$varNames <- 
-  rownames(imp_directions_ticks) # row names to column
-colnames(imp_directions_ticks) <- c('percIncMSE', 'IncNodePurity', 'varNames')
-
-p4 <- imp_directions_ticks %>%
-  ggplot(aes(x = varNames,
-             weight = percIncMSE, y = percIncMSE,
-             colour = varNames)) +
-  geom_point(size = 3) +
-  geom_segment(aes(x = varNames, xend = varNames, y = 0, yend = percIncMSE),
-               linewidth = 1.5) +
-  labs(y = '% increase MSE when removing variable',
-       x = NULL) +
-  ylim(0, 375) +
-  theme_minimal() +
-  theme(panel.grid.minor = element_blank(),
-        panel.border = element_rect(colour = 'lightgrey', fill = NA),
-        legend.position = 'none') +
-  ggtitle('Directions, ticks')
-
-(p1 + p2) / (p3 + p4)
-  plot_layout(guides = 'collect') +
-  plot_annotation(tag_levels = 'A') &
-  theme(plot.tag = element_text(size = 8))
-  
-ggsave('figures/fire_forest_varimportance.pdf')
-```
-
-I could still add partial dependence plots if I want to.

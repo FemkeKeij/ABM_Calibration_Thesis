@@ -1,7 +1,7 @@
 ---
-title: "WolfSheep_04_Training_SimpleRegression"
+title: "WolfSheep_07_Training_RandomForest"
 author: "Femke Keij S2647168"
-date: "2023-07-12"
+date: "2023-07-13"
 output: pdf_document
 ---
 
@@ -9,6 +9,7 @@ output: pdf_document
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
+# Preliminaries
 Clear working directory & set random seed:
 ```{r}
 rm(list = ls(all = TRUE))
@@ -28,6 +29,9 @@ library(ggbeeswarm)
 
 # for creating the cross-validation folds
 library(caret)
+
+# for random forest
+library(MultivariateRandomForest)
 ```
 
 Read in the data:
@@ -37,13 +41,6 @@ ws_train <- read_csv('data/processed/wolfsheep_timesteps_training.csv')
 ```
 
 # Fitting with cross-validation
-We fit a separate regression for each input parameter. All output variables serve as predictors. We apply a 5-fold cross-validation, and obtain the error computations for each one. The errors are then averaged across the 5 folds.
-
-
-with and without noise
-10, 20, and 50 timesteps + last timestep only
-random vs. lhs sampling
-
 Function to compute errors for continuous parameters:
 ```{r}
 ComputeErrorsContinuous <- function(predicted, true,
@@ -52,6 +49,7 @@ ComputeErrorsContinuous <- function(predicted, true,
   # predicted: predicted values
   # true: true values
   # mean_training: mean of values in training data set
+  # variable & fold: labels to pass onto output
   
   N <- length(true)
   
@@ -73,12 +71,17 @@ ComputeErrorsContinuous <- function(predicted, true,
 }
 ```
 
-Function to cross-validate linear regression
+Function to cross-validate multivariate random forest:
 ```{r}
-WolfSheepSimpleRegression <- function(data,
-                                      sampling_method,
-                                      timesteps,
-                                      noise){
+WolfSheepRandomForest <- function(data,
+                                  sampling_method,
+                                  timesteps,
+                                  noise){
+  # data: complete training data
+  # sampling_method: method used to create that data
+  # timesteps: which timesteps are included in the data
+  # noise: whether or not noise was added to the data
+  
   # create the folds
   flds <- createFolds(1:nrow(data),
                       k = 5, list = TRUE, returnTrain = FALSE)
@@ -103,32 +106,43 @@ WolfSheepSimpleRegression <- function(data,
     dat_test <- data %>%
       filter(combination_number %in% unlist(flds[i])) %>%
       select(- combination_number)
-  
-    # train the linear regressions
-    initial_sheep <- lm(formula = initial_number_sheep ~ .,
-                      data = dat)
-    initial_wolves <- lm(formula = initial_number_wolves ~ .,
-                       data = dat)
-    food_sheep <- lm(formula = sheep_gain_from_food ~ .,
-                     data = dat)
-    food_wolves <- lm(formula = wolves_gain_from_food ~ .,
-                    data = dat)
-    rep_sheep <- lm(formula = sheep_reproduce ~ .,
-                  data = dat)
-    rep_wolves <- lm(formula = wolves_reproduce ~ .,
-                   data = dat)
-    grass <- lm(formula = grass_regrowth ~ .,
-              data = dat)
-  
-    # predict the left-out fold
-    pred_initial_sheep <- predict(initial_sheep, data = dat_test)
-    pred_initial_wolves <- predict(initial_wolves, data = dat_test)
-    pred_food_sheep <- predict(food_sheep, data = dat_test)
-    pred_food_wolves <- predict(food_wolves, data = dat_test)
-    pred_rep_sheep <- predict(rep_sheep, data = dat_test)
-    pred_rep_wolves <- predict(rep_sheep, data = dat_test)
-    pred_grass <- predict(grass, data = dat_test)
     
+    # set up the output training data
+    Y <- dat %>%
+      select(c(initial_number_sheep, initial_number_wolves,
+                 sheep_gain_from_food, wolves_gain_from_food,
+                 sheep_reproduce, wolves_reproduce,
+                 grass_regrowth)) %>%
+      as.matrix()
+    # set up the input parameter data
+    X <- dat %>%
+      select(- c(initial_number_sheep, initial_number_wolves,
+                 sheep_gain_from_food, wolves_gain_from_food,
+                 sheep_reproduce, wolves_reproduce,
+                 grass_regrowth)) %>%
+      as.matrix()
+    # set up test data
+    testX <- dat_test %>%
+      select(- c(initial_number_sheep, initial_number_wolves,
+                 sheep_gain_from_food, wolves_gain_from_food,
+                 sheep_reproduce, wolves_reproduce,
+                 grass_regrowth)) %>%
+      as.matrix
+    
+    # train the multivariate random forest
+    # predict test data
+    pred <- build_forest_predict(trainX = X, trainY = Y,
+                                 n_tree = 20, m_feature = 1,
+                                 min_leaf = 5, testX = testX)
+    
+    pred_initial_sheep <- pred[, 1]
+    pred_initial_wolves <- pred[, 2]
+    pred_food_sheep <- pred[, 3]
+    pred_food_wolves <- pred[, 4]
+    pred_rep_sheep <- pred[, 5]
+    pred_rep_wolves <- pred[, 6]
+    pred_grass <- pred[, 7]
+  
     # compute mean input parameters in training data for
     # point prediction computation
     mean_initial_sheep <- mean(dat$initial_number_sheep)
@@ -193,10 +207,10 @@ WolfSheepSimpleRegression <- function(data,
 
 For now:
 ```{r}
-out <- WolfSheepSimpleRegression(ws_train,
-                                 sampling_method = 'random',
-                                 timesteps = 'all',
-                                 noise = 'no')
+out <- WolfSheepRandomForest(ws_train,
+                             sampling_method = 'random',
+                             timesteps = 'all',
+                             noise = 'no')
 ```
 
 1) no noise, 10 steps, random sampling
