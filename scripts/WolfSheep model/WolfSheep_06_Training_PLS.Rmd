@@ -9,8 +9,6 @@ output: pdf_document
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-
-# Preliminaries
 Clear working directory & set random seed:
 ```{r}
 rm(list = ls(all = TRUE))
@@ -35,6 +33,11 @@ library(caret)
 library(pls)
 ```
 
+Functions used:
+```{r}
+source('scripts/WolfSheep/WolfSheep_Functions.R')
+```
+
 Read in the data:
 ```{r}
 # training data
@@ -42,35 +45,6 @@ ws_train <- read_csv('data/processed/wolfsheep_timesteps_training.csv')
 ```
 
 # Fitting with cross-validation
-Function to compute errors for continuous parameters:
-```{r}
-ComputeErrorsContinuous <- function(predicted, true,
-                                    mean_training, variable,
-                                    fold){
-  # predicted: predicted values
-  # true: true values
-  # mean_training: mean of values in training data set
-  
-  N <- length(true)
-  
-  perc_correct <- sum(predicted == true) / N
-  perc_correct_cat <- sum(predicted >= true - 0.1 * true &
-                            predicted <= true + 0.1 * true)
-  RMSE <- sqrt(sum((predicted - true)^2)) / N
-  NRMSE <- (sqrt(sum((predicted - true)^2)) / N) / sd(true)
-  point_pred <- 1 - sum(sqrt((predicted - true)^2)) /
-                    sum(sqrt((true - mean_training)^2))
-  
-  return(tibble(fold = fold,
-                variable = variable,
-                perc_correct = perc_correct,
-                perc_correct_cat = perc_correct_cat,
-                RMSE = RMSE,
-                NRMSE = NRMSE,
-                point_pred = point_pred))
-}
-```
-
 Function to cross-validate partial least squares:
 ```{r}
 WolfSheepSimpleRegression <- function(data,
@@ -224,30 +198,9 @@ out <- WolfSheepSimpleRegression(ws_train,
 # Visualise results
 Compare each error metric:
 ```{r}
-out_long <- out %>%
-  pivot_longer(cols = c(perc_correct_cat,
-                        perc_correct,
-                        RMSE, NRMSE, point_pred),
-               names_to = 'metric',
-               values_to = 'vals')
+VisualiseErrorMetrics(out = out,
+                      noise = FALSE)
 
-# no noise
-out_long %>%
-  filter(noise == 'no') %>%
-  ggplot(mapping = aes(x = timesteps,
-                       y = vals,
-                       fill = sampling_method)) +
-  geom_bar(position = 'dodge', stat = 'identity') +
-  facet_wrap(~ metric + variable,
-             scales = 'free_y')
-
-# with noise
-out_long %>%
-  filter(noise == 'yes') %>%
-  ggplot(mapping = aes(x = timesteps,
-                       y = vals,
-                       fill = sampling_method)) +
-  geom_bar(position = 'dodge', stat = 'identity') +
-  facet_grid(~ metric + variable,
-             scales = 'free_y')
+VisualiseErrorMetrics(out = out,
+                      noise = TRUE)
 ```
