@@ -720,6 +720,39 @@ ws_output <- read_csv("data/raw/wolfsheep_output.csv",
                         col_names = TRUE)[, - 1]
 ```
 
+Look at the distribution of the outputs within 1 parameter combination. If this is approximately normal (or concentrated around a single mean), we can summarise the data into a single value (the mean).
+```{r}
+# randomly sample 10 parameter combinations to look at
+inspect <- sample(0:39, size = 10, replace = FALSE)
+
+# correct tick numbers
+ws_output$ticks <- rep(1:500, 600)
+
+# for the random combination numbers to look at
+for(i in inspect){
+  p <- ws_output %>%
+    # retrieve number and ticks 50, 100, and 150
+    filter(combination_number == i,
+          ticks %in% c(50, 100, 150)) %>%
+    # pivot longer to shorten plot code
+    pivot_longer(cols = c('sheep', 'wolves', 'grass'),
+                 names_to = 'turtles',
+                 values_to = 'values') %>%
+    # make histograms with turtle / patch values
+    ggplot(mapping = aes(x = values)) +
+    geom_histogram(binwidth = 100) +
+    # split for sheep, wolves, grass, and ticks
+    facet_grid(turtles ~ ticks) +
+    theme_minimal() +
+    theme(panel.border = element_rect(fill = NA, colour = 'lightgrey')) +
+    labs(caption = paste0('combination number ', as.character(i)))
+  
+  print(p)
+}
+```
+Combination number 17 shows some dispersion. Otherwise, most runs seem to agree on the output and it seems reasonable to summarise using means. I will also add the minimum, maximum, and median to account for the cases where this is not reasonable.
+
+
 Manipulate data so that there is 1 outcome for each parameter combination:
 The outcomes for each parameter set are summarized by their mean sheep, wolves, and grass at every tick of the simulation.
 ```{r}
