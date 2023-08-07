@@ -562,3 +562,8 @@ View(methods_averaged_ranking)
 So according to this measure, the GAM with cubic smoothing splines performs best, followed by the Regression and Classification Random Forest.
 
 # Conclusion
+=======
+
+
+Think about: there's probably methods for which all sample sizes and ticks yes/no perform better than another method. Maybe that should be reflected somewhow as well?
+>>>>>>> 761233eb3ba7accd7d0d634d77993387e47cda9d:scripts/Fire model/Fire_13_Comparison.Rmd
