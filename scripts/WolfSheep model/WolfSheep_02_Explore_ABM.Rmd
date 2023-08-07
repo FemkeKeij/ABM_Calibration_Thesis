@@ -355,7 +355,7 @@ Correlation between parameters and outputs:
 PlotCorrelations <- function(parameter){
   p_sheep <- ws_summary %>%
     filter(ticks %in% c(50, 100, 250, 500)) %>%
-    ggplot(mapping = aes(x = get(parameter), y = mean_sheep)) +
+    ggplot(mapping = aes(x = get(parameter), y = log(mean_sheep))) +
     geom_point() +
     geom_smooth(method = 'lm', se = FALSE) +
     theme_minimal() +
@@ -364,7 +364,7 @@ PlotCorrelations <- function(parameter){
   
   p_wolves <- ws_summary %>%
     filter(ticks %in% c(50, 100, 250, 500)) %>%
-    ggplot(mapping = aes(x = get(parameter), y = mean_wolves)) +
+    ggplot(mapping = aes(x = get(parameter), y = log(mean_wolves))) +
     geom_point() +
     geom_smooth(method = 'lm', se = FALSE) +
     theme_minimal() +

@@ -411,6 +411,7 @@ methods_ranking <- methods_ranking %>%
 ```
 So according to this measure, the GAM with cubic smoothing splines performs best, followed by the Latin Hypercube Sampling.
 
+<<<<<<< HEAD:scripts/Fire model OLD/Fire_13_Comparison.Rmd
 # Averaged across sample sizes.
 All comparisons above rely heavily on selecting the optimal sample size. Here, I average the performance of each method over all sample sizes and then see which one is best that way.
 
