@@ -15,6 +15,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
 import math
+import itertools
 import statistics
 sns.set_style('white')
 sns.set_context('talk')
@@ -26,11 +27,21 @@ Import R packages:
 ```{r}
 # for importing / working with tidy data
 library(tidyverse)
-# for sensitivity analysis
-library(sensitivity)
+# for arranging plots
+library(patchwork)
+# for cumulative computations
+library(zoo)
+# for rolling averages
+library(slider)
+# for latin hypercube sampling
+library(lhs)
 ```
 
-# Set up model
+Set seed:
+```{r}
+set.seed(42)
+```
+
 Link to and start the Fire model:
 ```{python}
 netlogo = pyNetLogo.NetLogoLink(gui = True) # start netlogo
