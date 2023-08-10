@@ -54,15 +54,259 @@ netlogo.load_model(r"C:\Users\Femke Keij\OneDrive\Thesis\R projects\LU thesis lo
 I'll use the burn percentage at each tick. There is no set number of ticks in this case, since the simulation stops when the burn does.
 
 # Determine number of runs
-Here I'm investigating 2 different ways of determining how often each parameter combination should be run to account for the stochasticity.
-I think I'll be including both in each model setup. I can do both and see if they agree or disagree with each other. If the mean convergence comes up with an incredibly high number, but the CV comes up with a much lower number that is a good indication that maybe the CV isn't very accurate for that model and I should use more simulations than that indicates.
+1) coefficient of variation
+2) mean convergence
+3) windowed variance
 
-The setup consists of 3 levels of the density parameter (low, medium, high) and the 2 levels of the directions parameter (4, 8) for a total of 6 parameter combinations.
-We look at convergence for each of the 6 parameter combinations separately.
+Optionally, we can set a separate convergence boundary $\epsilon$ for each output. This is only necessary when the outputs are on different scales, which is not the case here. I choose $\epsilon_{c_\upsilon} = 0.1$, $\epsilon_\mu = 1$, and $\epsilon_{\omega^2} = 0.2$.
+
+We can compute all these statistics using just 1 data set. To do so, we run each parameter combination 50 times and save the outputs at the last time step. I combine a low, mid, and high value for tree density with both combinations for directions.
 ```{python}
-densities = [5, 50, 95]
-directions = [4, 8]
+dictionary = {'densities': [5, 50, 95], 'directions': [4, 8]}
+
+def expand_grid(data_dict):
+    rows = itertools.product(*data_dict.values())
+    return pd.DataFrame.from_records(rows, columns = data_dict.keys())
+
+param_comb = expand_grid(dictionary)
 ```
+
+Obtain all necessary data:
+```{python}
+# data frame to store results
+out_df = pd.DataFrame(columns = ['density', 'directions', 'run', 'burn_percentage', 'tick'])
+# add empty row to start
+out_df = out_df.append({'density': 0, 'directions': 0, 'run': 0, 'burn_percentage': -100, 'tick': - 100}, ignore_index = True)
+
+# set counter
+count = 0
+# set random seed
+netlogo.command('clean')
+
+for i in range(0,len(param_comb)):
+  # set parameters
+  density = str(param_comb['density'][i])
+  directions = str(param_comb['density'][i])
+  netlogo.command(''.join(['set density ', density]))
+  netlogo.command(''.join(['set directions ', directions]))
+  
+  # initial run
+    netlogo.command('repeat 10000 [go]')
+    # record number of burned trees and number of initial trees
+    initial = netlogo.report('initial-trees')
+    burned = netlogo.report('burned-trees')
+    # calculate % burned
+    perc_burn = burned / initial * 100
+  
+  for x in range(0, 50):
+    # setup
+    netlogo.command('setup')
+    # run
+    netlogo.command('repeat 10000 [go]')
+    # record number of burned trees and number of initial trees
+    initial = netlogo.report('initial-trees')
+    burned = netlogo.report('burned-trees')
+    # calculate % burned
+    perc_burn = burned / initial * 100
+    # ticks before end of simulation
+    ticks = netlogo.report('ticks')
+    # store
+    out_df = out_df.append({'density': density, 'directions': directions, 'run': x + 1, 'burn_percentage': burn_perc, 'tick': ticks}, ignore_index = True)
+    
+out_df.to_csv('data/raw/fire_numruns.csv')
+```
+
+Compute statistics:
+```{r}
+numruns <- read.csv('data/raw/fire_numruns.csv')
+
+# remove first row
+numruns <- numruns %>%
+  slice(-1)
+
+# add a unique number for each parameter combination
+numruns <- numruns %>%
+  group_by(density, directions) %>%
+  mutate(combination_number = cur_group_id())
+```
+
+1) Mean convergence
+With $\epsilon_\mu = 1$
+```{r}
+numruns <- numruns %>%
+  group_by(combination_number, tick) %>%
+  # compute cumulative mean
+  # and differences between means
+  mutate(mean_burn = cummean(burn_percentage),
+         mean_diff_burn = mean_burn - 
+           lag(mean_burn, default = mean_burn[1]))
+
+# compute at which point the mean difference settles below 1
+mean_conv_burn <- numruns %>%
+  group_by(combination_number, tick) %>%
+  filter(abs(mean_diff_burn) < 1,
+         run != 1) %>%
+  slice(which.min(run))
+
+# plot
+p1 <- numruns %>%
+  ggplot(mapping = aes(x = run, y = mean_diff_burn,
+                       group = combination_number,
+                       colour = as.factor(tick))) +
+  geom_line() +
+  geom_hline(yintercept = 1, colour = 'darkgreen') +
+  geom_hline(yintercept = - 1, colour = 'darkgreen') +
+  theme_minimal() +
+  labs(x = 'runs added',
+       y = 'difference burn percentage')
+
+p2 <- mean_conv_burn %>%
+  ggplot(mapping = aes(x = run)) +
+  geom_histogram(binwidth = 1) +
+  geom_vline(xintercept = mean(mean_conv_burn$run),
+             colour = 'darkgreen', lty = 2) +
+  geom_vline(xintercept = median(mean_conv_burn$run),
+             colour = 'darkblue', lty = 2) +
+  annotate(geom = 'text', label = 'mean',
+           x = mean(mean_conv_burn$run) + 1, y = 20,
+           colour = 'darkgreen', angle = 90) +
+  annotate(geom = 'text', label = 'median',
+           x = median(mean_conv_burn$run) - 1, y = 20,
+           colour = 'darkblue', angle = 90) +
+  theme_minimal() +
+  labs(y = 'count',
+       x = 'number of runs until mean convergence')
+
+# plot both
+mean_conv_plot <- p1 / p2
+```
+
+2) Coefficient of variation
+With $\epsilon_{c_\upsilon} = 0.1$.
+```{r}
+numruns <- numruns %>%
+  group_by(combination_number) %>%
+  # compute cumulative standard deviations
+  # compute coefficient of variation
+  mutate(sd_burn = rollapplyr(burn_percentage, 1:n(), sd),
+         cv_burn = sd_burn / mean_burn) %>%
+  # replace all NAs (resulting from sd = 0) with 0
+  replace(is.na(.), 0) %>%
+  # compute differences in cv
+  mutate(cv_diff = cv_burn - lag(cv_burn, default = cv_burn[1]))
+  
+# compute at which point the mean difference settles below 1
+cv_conv_burn <- numruns %>%
+  group_by(combination_number) %>%
+  filter(abs(cv_diff_burn) < 0.1,
+         run != 1) %>%
+  slice(which.min(run))
+
+# plot
+p1 <- numruns %>%
+  ggplot(mapping = aes(x = run, y = cv_diff,
+                       group = combination_number)) +
+  geom_line(colour = 'lightgrey') +
+  geom_hline(yintercept = 0.1, colour = 'darkgreen') +
+  geom_hline(yintercept = - 0.1, colour = 'darkgreen') +
+  theme_minimal() +
+  labs(x = 'added runs',
+       y = 'cv burn percentage')
+
+p2 <- cv_conv_burn %>%
+  ggplot(mapping = aes(x = run)) +
+  geom_histogram(binwidth = 1) +
+  geom_vline(xintercept = mean(cv_conv_burn$run),
+             colour = 'darkgreen', lty = 2) +
+  geom_vline(xintercept = median(cv_conv_burn$run),
+             colour = 'darkblue', lty = 2) +
+  annotate(geom = 'text', label = 'mean',
+           x = mean(cv_conv_burn$run) + 1, y = 20,
+           colour = 'darkgreen', angle = 90) +
+  annotate(geom = 'text', label = 'median',
+           x = median(cv_conv_burn$run) - 1, y = 20,
+           colour = 'darkblue', angle = 90) +
+  theme_minimal() +
+  labs(y = 'count',
+       x = 'number of runs until cv convergence')
+
+# plot both
+cv_conv_plot <- p1 / p2
+```
+
+3) Windowed variance / relative outer variance
+Width of window: 10 runs
+With $\epsilon_\omega^2 = 0.2$
+```{r}
+numruns <- numruns %>% 
+  group_by(combination_number) %>% 
+  mutate(windowed_var = slider::slide_dbl(burn_percentage,
+                                          var, .before = 5,
+                                          .after = 5),
+         relative_outer_var = windowed_var / max(windowed_var))
+
+# compute at which point the relative outer variance settles below 0.2
+omega_conv <- numruns %>%
+  group_by(combination_number) %>%
+  filter(abs(relative_outer_var) < 0.2,
+         run != 1) %>%
+  slice(which.min(run))
+
+# plot
+p1 <- numruns %>%
+  ggplot(mapping = aes(x = run, y = relative_outer_var,
+                       group = combination_number)) +
+  geom_line(colour = 'lightgrey') +
+  geom_hline(yintercept = 0.2, colour = 'darkgreen') +
+  labs(y = 'relative outer variance burn percentage') +
+  theme_minimal()
+
+p2 <- omega_conv %>%
+  ggplot(mapping = aes(x = run)) +
+  geom_histogram(binwidth = 1) +
+  geom_vline(xintercept = mean(omega_conv$run),
+             colour = 'darkgreen', lty = 2) +
+  geom_vline(xintercept = median(omega_conv$run),
+             colour = 'darkblue', lty = 2) +
+  annotate(geom = 'text', label = 'mean',
+           x = mean(omega_conv$run) + 1, y = 20,
+           colour = 'darkgreen', angle = 90) +
+  annotate(geom = 'text', label = 'median',
+           x = median(omega_conv$run) - 1, y = 20,
+           colour = 'darkblue', angle = 90) +
+  theme_minimal() +
+  labs(y = 'count',
+       x = 'number of runs until relative outer variance convergence')
+
+# plot both
+outer_var_conv_plot <- p1 / p2
+```
+
+Inspect all results:
+```{r}
+# mean convergence
+mean_conv_plot
+ggsave('figures/fire_mean_convergence.pdf')
+
+# coefficient of variation
+cv_conv_plot
+ggsave('figures/fire_coefficientofvariation.pdf')
+
+# windowed variance
+outer_var_conv_plot
+ggsave('figures/fire_windowed_variance.pdf')
+```
+Mean convergence means and medians all under 15.
+Coefficient of variation means and medians all under 5.
+Outer relative variance means and medians all under 15.
+
+I think I can safely go for 10.
+
+Before making this conclusion final, check that I've done the outer relative variance thing correctly.
+
+
+
+
 
 1) Run until mean convergence up to 0.001.
 This is potentially very computationally intensive, but it may work better for non-linear models than the CV does. Therefore I wanted to try it for at least 1 model.
