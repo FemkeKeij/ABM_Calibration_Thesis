@@ -50,6 +50,9 @@ netlogo.load_model(r"C:\Users\Femke Keij\OneDrive\Thesis\R projects\LU thesis lo
 # open model
 ```
 
+# Decide on model outputs
+I'll use the burn percentage at each tick. There is no set number of ticks in this case, since the simulation stops when the burn does.
+
 # Determine number of runs
 Here I'm investigating 2 different ways of determining how often each parameter combination should be run to account for the stochasticity.
 I think I'll be including both in each model setup. I can do both and see if they agree or disagree with each other. If the mean convergence comes up with an incredibly high number, but the CV comes up with a much lower number that is a good indication that maybe the CV isn't very accurate for that model and I should use more simulations than that indicates.
