@@ -62,7 +62,7 @@ Optionally, we can set a separate convergence boundary $\epsilon$ for each outpu
 
 We can compute all these statistics using just 1 data set. To do so, we run each parameter combination 50 times and save the outputs at the last time step. I combine a low, mid, and high value for tree density with both combinations for directions.
 ```{python}
-dictionary = {'densities': [5, 50, 95], 'directions': [4, 8]}
+dictionary = {'density': [5, 50, 95], 'directions': [4, 8]}
 
 def expand_grid(data_dict):
     rows = itertools.product(*data_dict.values())
@@ -86,18 +86,11 @@ netlogo.command('clean')
 for i in range(0,len(param_comb)):
   # set parameters
   density = str(param_comb['density'][i])
-  directions = str(param_comb['density'][i])
+  directions = str(param_comb['directions'][i])
   netlogo.command(''.join(['set density ', density]))
   netlogo.command(''.join(['set directions ', directions]))
   
-  # initial run
-    netlogo.command('repeat 10000 [go]')
-    # record number of burned trees and number of initial trees
-    initial = netlogo.report('initial-trees')
-    burned = netlogo.report('burned-trees')
-    # calculate % burned
-    perc_burn = burned / initial * 100
-  
+  # repeat 50 times with set parameters
   for x in range(0, 50):
     # setup
     netlogo.command('setup')
@@ -107,11 +100,11 @@ for i in range(0,len(param_comb)):
     initial = netlogo.report('initial-trees')
     burned = netlogo.report('burned-trees')
     # calculate % burned
-    perc_burn = burned / initial * 100
+    burn_percentage = burned / initial * 100
     # ticks before end of simulation
     ticks = netlogo.report('ticks')
     # store
-    out_df = out_df.append({'density': density, 'directions': directions, 'run': x + 1, 'burn_percentage': burn_perc, 'tick': ticks}, ignore_index = True)
+    out_df = out_df.append({'density': density, 'directions': directions, 'run': x + 1, 'burn_percentage': burn_percentage, 'tick': ticks}, ignore_index = True)
     
 out_df.to_csv('data/raw/fire_numruns.csv')
 ```
@@ -120,9 +113,10 @@ Compute statistics:
 ```{r}
 numruns <- read.csv('data/raw/fire_numruns.csv')
 
-# remove first row
+# remove first row & column
 numruns <- numruns %>%
-  slice(-1)
+  slice(-1) %>%
+  select(-1)
 
 # add a unique number for each parameter combination
 numruns <- numruns %>%
@@ -143,7 +137,7 @@ numruns <- numruns %>%
 
 # compute at which point the mean difference settles below 1
 mean_conv_burn <- numruns %>%
-  group_by(combination_number, tick) %>%
+  group_by(combination_number) %>%
   filter(abs(mean_diff_burn) < 1,
          run != 1) %>%
   slice(which.min(run))
@@ -151,9 +145,8 @@ mean_conv_burn <- numruns %>%
 # plot
 p1 <- numruns %>%
   ggplot(mapping = aes(x = run, y = mean_diff_burn,
-                       group = combination_number,
-                       colour = as.factor(tick))) +
-  geom_line() +
+                       group = combination_number)) +
+  geom_line(colour = 'lightgrey') +
   geom_hline(yintercept = 1, colour = 'darkgreen') +
   geom_hline(yintercept = - 1, colour = 'darkgreen') +
   theme_minimal() +
@@ -163,16 +156,6 @@ p1 <- numruns %>%
 p2 <- mean_conv_burn %>%
   ggplot(mapping = aes(x = run)) +
   geom_histogram(binwidth = 1) +
-  geom_vline(xintercept = mean(mean_conv_burn$run),
-             colour = 'darkgreen', lty = 2) +
-  geom_vline(xintercept = median(mean_conv_burn$run),
-             colour = 'darkblue', lty = 2) +
-  annotate(geom = 'text', label = 'mean',
-           x = mean(mean_conv_burn$run) + 1, y = 20,
-           colour = 'darkgreen', angle = 90) +
-  annotate(geom = 'text', label = 'median',
-           x = median(mean_conv_burn$run) - 1, y = 20,
-           colour = 'darkblue', angle = 90) +
   theme_minimal() +
   labs(y = 'count',
        x = 'number of runs until mean convergence')
@@ -198,7 +181,7 @@ numruns <- numruns %>%
 # compute at which point the mean difference settles below 1
 cv_conv_burn <- numruns %>%
   group_by(combination_number) %>%
-  filter(abs(cv_diff_burn) < 0.1,
+  filter(abs(cv_diff) < 0.1,
          run != 1) %>%
   slice(which.min(run))
 
@@ -221,10 +204,10 @@ p2 <- cv_conv_burn %>%
   geom_vline(xintercept = median(cv_conv_burn$run),
              colour = 'darkblue', lty = 2) +
   annotate(geom = 'text', label = 'mean',
-           x = mean(cv_conv_burn$run) + 1, y = 20,
+           x = mean(cv_conv_burn$run) + 0.2, y = 20,
            colour = 'darkgreen', angle = 90) +
   annotate(geom = 'text', label = 'median',
-           x = median(cv_conv_burn$run) - 1, y = 20,
+           x = median(cv_conv_burn$run) - 0.2, y = 20,
            colour = 'darkblue', angle = 90) +
   theme_minimal() +
   labs(y = 'count',
@@ -243,7 +226,10 @@ numruns <- numruns %>%
   mutate(windowed_var = slider::slide_dbl(burn_percentage,
                                           var, .before = 5,
                                           .after = 5),
-         relative_outer_var = windowed_var / max(windowed_var))
+         # if windowed_var = 0, set relative_outer_var to 0 also
+         relative_outer_var = ifelse(windowed_var == 0,
+                                     0,
+                                     windowed_var / max(windowed_var)))
 
 # compute at which point the relative outer variance settles below 0.2
 omega_conv <- numruns %>%
@@ -296,126 +282,8 @@ ggsave('figures/fire_coefficientofvariation.pdf')
 outer_var_conv_plot
 ggsave('figures/fire_windowed_variance.pdf')
 ```
-Mean convergence means and medians all under 15.
-Coefficient of variation means and medians all under 5.
-Outer relative variance means and medians all under 15.
 
-I think I can safely go for 10.
-
-Before making this conclusion final, check that I've done the outer relative variance thing correctly.
-
-
-
-
-
-1) Run until mean convergence up to 0.001.
-This is potentially very computationally intensive, but it may work better for non-linear models than the CV does. Therefore I wanted to try it for at least 1 model.
-```{python}
-# data frame to store results
-means = pd.DataFrame(columns = ['density', 'directions', 'run', 'mean'])
-# add empty row to start
-means = means.append({'density': 0, 'directions': 0, 'run': 0, 'perc_burn': -100, 'mean': -100}, ignore_index = True)
-
-# set counter
-count = 0
-
-for i in directions:
-  # set directions
-  direction = str(i)
-  netlogo.command(''.join(['set directions ', direction]))
-  for j in densities:
-    # reset number of runs
-    runs = 1
-    # set direction
-    density = str(j)
-    netlogo.command(''.join(['set density ', density]))
-    # set a random seed
-    netlogo.command('clean')
-    # set up model
-    netlogo.command('setup')
-    # initial run
-    netlogo.command('repeat 10000 [go]')
-    # record number of burned trees and number of initial trees
-    initial = netlogo.report('initial-trees')
-    burned = netlogo.report('burned-trees')
-    # calculate % burned
-    perc_burn = burned / initial * 100
-    # add to dataframe
-    means = means.append({'density': density, 'directions': direction, 'run': runs, 'perc_burn': perc_burn, 'mean': perc_burn}, ignore_index = True)
-    # add count
-    count = count + 1
-    # repeat runs until mean burn percentage at end doesn't
-    # change anymore (up to threshold 0.01)
-    while abs(means['mean'][count - 1] - means['mean'][count]) > 0.01:
-      # add to count
-      count = count + 1
-      # add to runs
-      runs = runs + 1
-      # set up model
-      netlogo.command('setup')
-      # run model
-      netlogo.command('repeat 10000 [go]')
-      # record number of burned trees and number of initial trees
-      initial = netlogo.report('initial-trees')
-      burned = netlogo.report('burned-trees')
-      # calculate % burned
-      perc_burn = burned / initial * 100
-      # compute new mean % burned
-      df = means[(means['density'] == density) & (means['directions'] == direction)]
-      new_mean = ((df['perc_burn'].mean() * len(df)) + perc_burn) / (len(df) + 1)
-      # add to dataframe
-      means = means.append({'density': density, 'directions': direction, 'run': runs, 'perc_burn': perc_burn, 'mean': new_mean}, ignore_index = True)
-      
-means
-```
-Most parameter combinations require just 2 - 6 runs for the mean to stabilize. However, there are some in the middle of the range that require 10 runs.
-
-2) Run until coefficient of variation (CV) stabilizes.
-To determine how often the model should be run, I look at the coefficient of variation: $c_{\upsilon} = \sigma / \mu$. At the number of repetitions where this remains approximately the same, we can assume convergence [LU40, LU47]. This is only true for linear relationships, which we don't have here, but it will give an indication of how often to run the model:
-```{python}
-runs = [3, 5, 7, 10, 20, 30]
-CVs = pd.DataFrame(columns = ['density', 'directions', 'runs', 'CV'])
-
-for i in directions:
-  # set number of directions
-  direction = str(i)
-  netlogo.command(''.join(['set directions ', direction]))
-  for j in densities:
-    # set density
-    density = str(j)
-    netlogo.command(''.join(['set density ', density]))
-    # set random seed
-    netlogo.command('clean')
-    # set up data frame to store results
-    perc_burn_df = pd.DataFrame(columns = ['perc_burn'])
-    for k in runs:
-      for x in range(0, k):
-        # setup
-        netlogo.command('setup')
-        # execute for 10,000 ticks or until the model is done
-        netlogo.command('repeat 10000 [go]')
-        # record number of burned trees and 
-        # number of initial trees
-        initial = netlogo.report('initial-trees')
-        burned = netlogo.report('burned-trees')
-        # calculate % burned
-        perc_burn = burned / initial * 100
-        # store
-        perc_burn_df = perc_burn_df.append({'perc_burn': perc_burn}, ignore_index = True)
-    
-      # compute CV
-      CV_new = perc_burn_df.mean() / perc_burn_df.std()
-      # if standard deviation = 0, set CV to 0
-      if math.isinf(CV_new):
-        CV_new = 0
-      else:
-        CV_new = int(CV_new)
-      CVs = CVs.append({'density': density, 'directions': direction, 'runs': k, 'CV' : CV_new}, ignore_index = True)
-
-# inspect coefficients of variation
-CVs
-```
-So 10 runs is sufficient.
+The mean convergence and coefficient of variation suggest 2 - 3 runs only. However, the relative outer variance suggests 20 runs, with some parameters even requiring as many as 40.
 
 # Sensitivity analysis
 Using Morris' screening
