@@ -46,7 +46,7 @@ Link to and start the Fire model:
 ```{python}
 netlogo = pyNetLogo.NetLogoLink(gui = True) # start netlogo
 
-netlogo.load_model(r"C:\Users\Femke Keij\OneDrive\Thesis\R projects\LU thesis local\models\Fire_myversion.nlogo")
+netlogo.load_model(r"C:\Users\Femke Keij\OneDrive\Thesis\R projects\LU thesis GitHub\models\Fire_myversion.nlogo")
 # open model
 ```
 
@@ -285,6 +285,142 @@ ggsave('figures/fire_windowed_variance.pdf')
 
 The mean convergence and coefficient of variation suggest 2 - 3 runs only. However, the relative outer variance suggests 20 runs, with some parameters even requiring as many as 40.
 
+# Sampling parameter space
+Because this model is not very large, I can simply sample the entire parameter space.
+Set up the model and run 5 times for each density, record the percentage of trees burned at every tick:
+```{python}
+densities = list(range(1,100))
+directions = [4, 8]
+parameter_space_df = pd.DataFrame(columns = ['density', 'burn_percentage', 'directions', 'ticks'])
+
+for y in directions:
+  direction = str(y)
+  netlogo.command(''.join(['set directions ', direction]))
+  for d in densities:
+    # density
+    density = str(d)
+    # set density
+    netlogo.command(''.join(['set density ', density]))
+    # set a random seed
+    netlogo.command('clean')
+    # repeat the execution of the model 10 times to account
+    # for stochasticity
+    for x in range(1,6):
+      # set up
+      netlogo.command('setup')
+      initial = netlogo.report('initial-trees')
+      # execute 1 tick at a time, until everything is burned up
+      turtles = netlogo.report('count turtles')
+      while turtles != 0:
+        netlogo.command('go')
+        # record burn percentage
+        burned = netlogo.report('burned-trees')
+        perc_burn = burned / initial * 100
+        ticks = netlogo.report('ticks')
+        # store in data frame
+        parameter_space_df = parameter_space_df.append({'density': density, 'burn_percentage': perc_burn, 'directions': direction, 'ticks': ticks}, ignore_index = True)
+        # check turtles
+        turtles = netlogo.report('count turtles')
+        
+# save data as a csv file.
+parameter_space_df.to_csv("C:/Users/Femke Keij/OneDrive/Thesis/R projects/LU thesis GitHub/data/raw/fire_output2.csv")
+```
+
+Close the model:
+```{python}
+netlogo.kill_workspace()
+```
+
+Stop running the python environment:
+```{python}
+quit
+```
+
+# Summarise repeated runs
+Clear working directory:
+```{r}
+rm(list = ls(all = TRUE))
+```
+
+Import csv output format for the model as tidy data. We ignore the first column because it contains the indices.
+```{r}
+ws_output <- read_csv("data/raw/wolfsheep_output.csv",
+                        col_names = TRUE)[, - 1]
+```
+
+Look at the distribution of the outputs within 1 parameter combination. If this is approximately normal (or concentrated around a single mean), we can summarise the data into a single value (the mean).
+```{r}
+# randomly sample 10 parameter combinations to look at
+inspect <- sample(0:39, size = 10, replace = FALSE)
+
+# correct tick numbers
+ws_output$ticks <- rep(1:500, 600)
+
+# for the random combination numbers to look at
+for(i in inspect){
+  p <- ws_output %>%
+    # retrieve number and ticks 50, 100, and 150
+    filter(combination_number == i,
+          ticks %in% c(50, 100, 150)) %>%
+    # pivot longer to shorten plot code
+    pivot_longer(cols = c('sheep', 'wolves', 'grass'),
+                 names_to = 'turtles',
+                 values_to = 'values') %>%
+    # make histograms with turtle / patch values
+    ggplot(mapping = aes(x = values)) +
+    geom_histogram(binwidth = 100) +
+    # split for sheep, wolves, grass, and ticks
+    facet_grid(turtles ~ ticks) +
+    theme_minimal() +
+    theme(panel.border = element_rect(fill = NA, colour = 'lightgrey')) +
+    labs(caption = paste0('combination number ', as.character(i)))
+  
+  print(p)
+}
+```
+Combination number 17 shows some dispersion. Otherwise, most runs seem to agree on the output and it seems reasonable to summarise using means.
+
+Manipulate data so that there is 1 outcome for each parameter combination:
+The outcomes for each parameter set are summarized by their mean sheep, wolves, and grass at every tick of the simulation.
+```{r}
+all_comb <- read_csv('data/processed/wolfsheep_parameterspace.csv')
+
+# group the data by parameter combination and ticks
+ws_summary <- ws_output %>%
+  group_by(combination_number, ticks) %>%
+  # take the mean wolf, sheep, and grass numbers over the 15 runs for each density
+  summarise(mean_sheep = mean(sheep),
+            mean_wolves = mean(wolves),
+            mean_grass = mean(grass),
+            .groups = 'keep')
+
+# add the initial parameters back in
+ws_summary$initial_number_sheep <- numeric(nrow(ws_summary))
+ws_summary$initial_number_wolves <- numeric(nrow(ws_summary))
+ws_summary$sheep_gain_from_food <- numeric(nrow(ws_summary))
+ws_summary$wolves_gain_from_food <- numeric(nrow(ws_summary))
+ws_summary$sheep_reproduce <- numeric(nrow(ws_summary))
+ws_summary$wolves_reproduce <- numeric(nrow(ws_summary))
+ws_summary$grass_regrowth <- numeric(nrow(ws_summary))
+
+# change the combination numbers from 0 - 39 to 1 - 40
+ws_summary$combination_number <- ws_summary$combination_number + 1
+
+for(i in 1:nrow(ws_summary)){
+  comb_numb <- ws_summary$combination_number[i]
+  ws_summary$initial_number_sheep[i] <- as.numeric(all_comb[comb_numb, 1])
+  ws_summary$initial_number_wolves[i] <- as.numeric(all_comb[comb_numb, 2])
+  ws_summary$sheep_gain_from_food[i] <- as.numeric(all_comb[comb_numb, 3])
+  ws_summary$wolves_gain_from_food[i] <- as.numeric(all_comb[comb_numb, 4])
+  ws_summary$sheep_reproduce[i] <- as.numeric(all_comb[comb_numb, 5])
+  ws_summary$wolves_reproduce[i] <- as.numeric(all_comb[comb_numb, 6])
+  ws_summary$grass_regrowth[i] <- as.numeric(all_comb[comb_numb, 7])
+}
+  
+ws_summary %>%
+  write_csv(file = 'data/processed/wolfsheep_summary.csv')
+```
+
 # Sensitivity analysis
 Using Morris' screening
 ```{r}
@@ -367,56 +503,6 @@ sensitivity_results
 ```
 
 # Sampling parameter space
-Because this model is not very large, I can simply sample the entire parameter space.
-Set up the model and run 10 times for each density, record the percentage of trees burned:
-```{python}
-densities = list(range(1,100))
-directions = [4, 8]
-parameter_space_df = pd.DataFrame(columns = ['density', 'burn_percentage', 'directions', 'ticks'])
-
-for y in directions:
-  direction = str(y)
-  netlogo.command(''.join(['set directions ', direction]))
-  for d in densities:
-    # density
-    density = str(d)
-    # set density
-    netlogo.command(''.join(['set density ', density]))
-    # set a random seed
-    netlogo.command('clean')
-    # repeat the execution of the model 10 times to account
-    # for stochasticity
-    for x in range(1,11):
-      # set up
-      netlogo.command('setup')
-      # execute for 10,000 ticks or until the model is done
-      netlogo.command('repeat 10000 [go]')
-      # record number of burned trees and number of initial trees
-      initial = netlogo.report('initial-trees')
-      burned = netlogo.report('burned-trees')
-      # record number of ticks after last trees are
-      # burned out
-      ticks = netlogo.report('ticks')
-      # calculate % burned
-      perc_burn = burned / initial * 100
-      # store in data frame
-      parameter_space_df = parameter_space_df.append({'density': d,'burn_percentage': perc_burn, 'directions': y, 'ticks': ticks}, ignore_index = True)
-```
-
-Save data as a csv file.
-```{python}
-parameter_space_df.to_csv("C:/Users/Femke Keij/OneDrive/Thesis/R projects/LU thesis local/data/raw/fire_output.csv")
-```
-
-Close the model:
-```{python}
-netlogo.kill_workspace()
-```
-
-Stop running the python environment:
-```{python}
-quit
-```
 
 # Split into training and test data
 Clear working directory:
@@ -426,9 +512,9 @@ rm(list = ls(all = TRUE))
 
 Import csv output format for the fire model as tidy data. We ignore the first column because it contains the indices.
 ```{r}
-fire_output <- read_csv("data/raw/fire_output.csv",
+fire_output <- read_csv("data/raw/fire_output2.csv",
                         col_names = TRUE,
-                        col_select = 2:4)
+                        col_select = 2:5)
 ```
 
 Manipulate data so that there is 1 outcome for each density:
