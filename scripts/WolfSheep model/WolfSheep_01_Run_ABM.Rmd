@@ -53,6 +53,9 @@ netlogo.load_model(r"C:\Users\Femke Keij\OneDrive\Thesis\R projects\LU thesis lo
 netlogo.command('set model-version "sheep-wolves-grass"')
 ```
 
+# Decide on model outputs
+I'll use the number of sheep, number of wolves, and amount of grass as outputs. I'm recording them at each tick for 500 ticks.
+
 # Determine number of runs
 1) coefficient of variation
 2) mean convergence
@@ -541,7 +544,7 @@ I think I can safely go for 10.
 Before making this conclusion final, check that I've done the outer relative variance thing correctly.
 
 # Sampling parameter space
-Sample 1, 5, and 10% of parameter space using first random sampling and then Latin Hypercube Sampling.
+Sample 1250, 5000, and 10000 samples using first random sampling and then Latin Hypercube Sampling.
 There are 7 parameters in this model. The parameter ranges are
 - initial-number-sheep 0 - 250
 - initial-number-wolves 0 - 250
@@ -750,8 +753,7 @@ for(i in inspect){
   print(p)
 }
 ```
-Combination number 17 shows some dispersion. Otherwise, most runs seem to agree on the output and it seems reasonable to summarise using means. I will also add the minimum, maximum, and median to account for the cases where this is not reasonable.
-
+Combination number 17 shows some dispersion. Otherwise, most runs seem to agree on the output and it seems reasonable to summarise using means.
 
 Manipulate data so that there is 1 outcome for each parameter combination:
 The outcomes for each parameter set are summarized by their mean sheep, wolves, and grass at every tick of the simulation.
@@ -792,4 +794,10 @@ for(i in 1:nrow(ws_summary)){
   
 ws_summary %>%
   write_csv(file = 'data/processed/wolfsheep_summary.csv')
+```
+
+Also save non-summarised version:
+```{r}
+ws_output %>%
+  write_csv(file = 'data/processed/wolfsheep_full.csv')
 ```
