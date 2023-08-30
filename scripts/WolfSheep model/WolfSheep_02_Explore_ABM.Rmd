@@ -42,7 +42,7 @@ Read in the data:
 ```{r}
 # complete data set
 ws_output <- read_csv(
-  'data/raw/wolfsheep_output.csv')
+  'data/processed/wolfsheep_full.csv')
 
 # output data summary
 ws_summary <- read_csv(
