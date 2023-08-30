@@ -110,10 +110,6 @@ Apply a k-means clustering to the burn percentages at the middle and final times
 Start by formatting the data for the analysis
 ```{r}
 kmeans_data <- fire_summary %>%
-  group_by(combination_number) %>%
-  mutate(time_label = ifelse(ticks == max(ticks), 'end',
-                             ifelse(ticks == floor(median(ticks)),
-                                    'middle', '--'))) %>%
   filter(time_label %in% c('middle', 'end')) %>%
   select(combination_number, burn_percentage, time_label) %>%
   pivot_wider(names_from = time_label,
@@ -181,6 +177,30 @@ p1 + p2
 The clusters show that we can distinguish fairly well between high and low tree densities based on the burn percentage during the simulation. However, it is difficult to distinguish between the directions. Therefore, we can conclude that there is equifinality for the number of directions.
 
 # Identifying unidentifiable parameters
+Correlation between parameters and outputs:
+```{r}
+p1 <- fire_summary %>%
+  filter(time_label %in% c('middle', 'end')) %>%
+  ggplot(mapping = aes(x = density, y = burn_percentage)) +
+  geom_point() +
+  geom_smooth(method = 'lm', se = FALSE) +
+  theme_minimal() +
+  labs(x = 'tree density', y = 'percentage of burned trees') +
+  facet_grid(directions ~ time_label,
+             labeller = 'label_both')
+
+p2 <- fire_summary %>%
+  filter(time_label %in% c('middle', 'end')) %>%
+  ggplot(mapping = aes(x = as.factor(directions), y = burn_percentage)) +
+  geom_boxplot() +
+  theme_minimal() +
+  labs(x = 'number of directions', y = 'percentage of burned trees') +
+  facet_grid(~ time_label)
+
+p1 / p2
+```
+We cannot say anything based on the slopes here, because there is only 1 continuous input parameter and the other one is discrete.
+
 
 
 # Summary statistics
