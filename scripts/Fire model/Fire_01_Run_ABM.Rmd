@@ -291,7 +291,7 @@ Set up the model and run 5 times for each density, record the percentage of tree
 ```{python}
 densities = list(range(1,100))
 directions = [4, 8]
-parameter_space_df = pd.DataFrame(columns = ['density', 'burn_percentage', 'directions', 'ticks'])
+parameter_space_df = pd.DataFrame(columns = ['density', 'burn_percentage', 'directions', 'ticks', 'run'])
 
 for y in directions:
   direction = str(y)
@@ -318,7 +318,7 @@ for y in directions:
         perc_burn = burned / initial * 100
         ticks = netlogo.report('ticks')
         # store in data frame
-        parameter_space_df = parameter_space_df.append({'density': density, 'burn_percentage': perc_burn, 'directions': direction, 'ticks': ticks}, ignore_index = True)
+        parameter_space_df = parameter_space_df.append({'density': density, 'burn_percentage': perc_burn, 'directions': direction, 'ticks': ticks, 'run': x}, ignore_index = True)
         # check turtles
         turtles = netlogo.report('count turtles')
         
@@ -344,83 +344,90 @@ rm(list = ls(all = TRUE))
 
 Import csv output format for the model as tidy data. We ignore the first column because it contains the indices.
 ```{r}
-ws_output <- read_csv("data/raw/wolfsheep_output.csv",
+fire_output <- read_csv("data/raw/fire_output2.csv",
                         col_names = TRUE)[, - 1]
 ```
 
 Look at the distribution of the outputs within 1 parameter combination. If this is approximately normal (or concentrated around a single mean), we can summarise the data into a single value (the mean).
 ```{r}
-# randomly sample 10 parameter combinations to look at
-inspect <- sample(0:39, size = 10, replace = FALSE)
+# add parameter combination numbers
+fire_output <- fire_output %>%
+  group_by(density, directions) %>%
+  mutate(combination_number = cur_group_id())
 
-# correct tick numbers
-ws_output$ticks <- rep(1:500, 600)
+# this bit adds run numbers to the data frame because I forgot to add them while running the simulations. Once I've rerun the simulations, this can go because there's now code to add the run numbers while running the simulations.
+counts <- 0
+fire_output$run <- numeric(nrow(fire_output))
+fire_output$run[1] <- 0
+for(i in 2:nrow(fire_output)){
+  # if current row has ticks == 1, update run number
+  if(fire_output$ticks[i] == 1){
+    # update count number
+    counts <- counts + 1
+    
+    # if current row starts a new combination number
+    new_combination_number <- fire_output$combination_number[i] !=
+      fire_output$combination_number[i - 1]
+    # reset counts to 1
+    if(new_combination_number){
+      counts <- 1
+    }
+  }
+  # if the current row does not have ticks == 1, we want to use the same counts as for the previous row
+  
+  fire_output$run[i] <- counts
+}
+############# end of code that can be removed #####################
 
-# for the random combination numbers to look at
+  
+# select 10 parameter combinations to look at
+inspect <- c(5, 6, 50, 51, 100, 101, 150, 151, 190, 191)
+
+# plot histograms of burn percentages at middle and end of the simulation
+fire_output <- fire_output %>%
+  group_by(combination_number, run) %>%
+  mutate(time_label = ifelse(ticks == max(ticks), 'end',
+                             ifelse(ticks == floor(median(ticks)),
+                                    'middle', '--')))
+
 for(i in inspect){
-  p <- ws_output %>%
-    # retrieve number and ticks 50, 100, and 150
+  p <- fire_output %>%
     filter(combination_number == i,
-          ticks %in% c(50, 100, 150)) %>%
-    # pivot longer to shorten plot code
-    pivot_longer(cols = c('sheep', 'wolves', 'grass'),
-                 names_to = 'turtles',
-                 values_to = 'values') %>%
-    # make histograms with turtle / patch values
-    ggplot(mapping = aes(x = values)) +
-    geom_histogram(binwidth = 100) +
-    # split for sheep, wolves, grass, and ticks
-    facet_grid(turtles ~ ticks) +
+           time_label %in% c('middle', 'end')) %>%
+    # make histograms with burn_percentage values
+    ggplot(mapping = aes(x = burn_percentage)) +
+    geom_histogram(binwidth = 1) +
+    facet_grid(~ time_label) +
     theme_minimal() +
-    theme(panel.border = element_rect(fill = NA, colour = 'lightgrey')) +
-    labs(caption = paste0('combination number ', as.character(i)))
+    theme(panel.border = element_rect(fill = NA,
+                                      colour ='lightgrey')) +
+    labs(caption = paste0('combination number ', as.character(i)),
+         x = 'percentage of trees burned')
   
   print(p)
 }
 ```
-Combination number 17 shows some dispersion. Otherwise, most runs seem to agree on the output and it seems reasonable to summarise using means.
+The data aren't spread very widely so summarising by mean makes sense.
 
 Manipulate data so that there is 1 outcome for each parameter combination:
-The outcomes for each parameter set are summarized by their mean sheep, wolves, and grass at every tick of the simulation.
+The outcomes for each parameter set are summarized by their mean 
+burn percentage at every tick of the simulation.
 ```{r}
-all_comb <- read_csv('data/processed/wolfsheep_parameterspace.csv')
-
 # group the data by parameter combination and ticks
-ws_summary <- ws_output %>%
-  group_by(combination_number, ticks) %>%
-  # take the mean wolf, sheep, and grass numbers over the 15 runs for each density
-  summarise(mean_sheep = mean(sheep),
-            mean_wolves = mean(wolves),
-            mean_grass = mean(grass),
-            .groups = 'keep')
+fire_summary <- fire_output %>%
+  group_by(density, directions, combination_number, ticks) %>%
+  # take the mean burn percentage numbers over the 5 runs for each density
+  summarise(mean_burn_percentage = mean(burn_percentage),
+            .groups = 'keep') 
 
-# add the initial parameters back in
-ws_summary$initial_number_sheep <- numeric(nrow(ws_summary))
-ws_summary$initial_number_wolves <- numeric(nrow(ws_summary))
-ws_summary$sheep_gain_from_food <- numeric(nrow(ws_summary))
-ws_summary$wolves_gain_from_food <- numeric(nrow(ws_summary))
-ws_summary$sheep_reproduce <- numeric(nrow(ws_summary))
-ws_summary$wolves_reproduce <- numeric(nrow(ws_summary))
-ws_summary$grass_regrowth <- numeric(nrow(ws_summary))
-
-# change the combination numbers from 0 - 39 to 1 - 40
-ws_summary$combination_number <- ws_summary$combination_number + 1
-
-for(i in 1:nrow(ws_summary)){
-  comb_numb <- ws_summary$combination_number[i]
-  ws_summary$initial_number_sheep[i] <- as.numeric(all_comb[comb_numb, 1])
-  ws_summary$initial_number_wolves[i] <- as.numeric(all_comb[comb_numb, 2])
-  ws_summary$sheep_gain_from_food[i] <- as.numeric(all_comb[comb_numb, 3])
-  ws_summary$wolves_gain_from_food[i] <- as.numeric(all_comb[comb_numb, 4])
-  ws_summary$sheep_reproduce[i] <- as.numeric(all_comb[comb_numb, 5])
-  ws_summary$wolves_reproduce[i] <- as.numeric(all_comb[comb_numb, 6])
-  ws_summary$grass_regrowth[i] <- as.numeric(all_comb[comb_numb, 7])
-}
-  
-ws_summary %>%
-  write_csv(file = 'data/processed/wolfsheep_summary.csv')
+fire_summary %>%
+  write_csv(file = 'data/processed/fire_summary.csv')
 ```
 
+
+
+
+#################### OLD CODE #############################
 # Sensitivity analysis
 Using Morris' screening
 ```{r}
