@@ -8,6 +8,7 @@ output: pdf_document
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 ```
+
 Clear working directory:
 ```{r}
 rm(list = ls(all = TRUE)) 
@@ -35,62 +36,57 @@ Read in the data:
 ```{r}
 # complete data set
 fire_output <- read_csv(
-  'data/raw/fire_output.csv')
-fire_output %>%
-  mutate(directions = replace(directions, directions == 4,
-                              "4 directions"),
-         directions = replace(directions, directions == 8,
-                              "8 directions")) -> fire_output
+  'data/processed/fire_full.csv')
 
-# training data
-fire_train <- read_csv(
-  'data/processed/fire_train.csv')
-
-# test data
-fire_test <- read_csv(
-  'data/processed/fire_test.csv')
-
-# output data summary for model with 4 directions
+# output data summary
 fire_summary <- read_csv(
   'data/processed/fire_summary.csv')
-fire_summary %>%
-  mutate(directions = replace(directions, directions == 4,
-                              "4 directions"),
-         directions = replace(directions, directions == 8,
-                              "8 directions")) -> fire_summary
+# rename 'mean_burn_percentage' to 'burn_percentage'
+fire_summary <- fire_summary %>%
+  rename(burn_percentage = mean_burn_percentage)
 ```
 
-# Plots
-Parameter space plot:
+# Visualising parameter space
+Plot time series:
 ```{r}
-fire_summary %>%
-  ggplot(mapping = (aes(x = density, y = burned,
-                        group = directions,
-                        colour = directions))) +
-  labs(x = 'tree density (%)',
-       y = '% of burned trees at last tick') +
-  geom_path (linewidth = 1) +
-  geom_vline(aes(xintercept = 59), colour = 'dark green') +
-  geom_ribbon(aes(ymin = min, ymax = max,
-                  colour = directions), alpha = 0.3,) +
+p1 <- fire_summary %>%
+  ggplot(mapping = aes(x = ticks, y = burn_percentage,
+                       group = combination_number)) +
+  geom_line(alpha = 0.2) +
+  labs(y = 'percentage trees burned') +
   theme_minimal() +
-  theme(legend.position = 'none') +
-  geom_dl(aes(label = directions), method = 'extreme.grid') +
-  scale_color_brewer(type = 'qual') -> p1
+  theme(panel.grid.minor = element_blank()) +
+  facet_grid(~ directions,
+             labeller = 'label_both')
+```
+
+Plot burn percentage at last tick as a function of density at start of simulation and number of directions:
+```{r}
+p2 <- fire_summary %>%
+  group_by(combination_number) %>%
+  filter(ticks == max(ticks)) %>%
+  ggplot(mapping = (aes(x = density, y = burn_percentage,
+                        group = as.factor(directions),
+                        colour = as.factor(directions)))) +
+  labs(x = 'tree density (%)',
+       y = '% of burned trees at last tick',
+       colour = 'number of directions') +
+  geom_path (linewidth = 1) +
+  theme_minimal()
 ```
 
 Plot number of ticks against density:
 ```{r}
-fire_output %>%
+p3 <- fire_output %>%
+  group_by(combination_number) %>%
+  filter(ticks == max(ticks)) %>%
   ggplot(mapping = aes(x = density, y = ticks, 
-                       colour = directions)) +
-  geom_point(aes(alpha = 0.5)) +
+                       colour = as.factor(directions))) +
+  geom_point(alpha = 0.5) +
   labs(x = 'tree density (%)',
-       y = 'number of ticks until fire extinguishes') +
-  theme_minimal() +
-  theme(legend.position = 'none') +
-  geom_dl(aes(label = directions), method = 'extreme.grid') +
-  scale_color_brewer(type = 'qual') -> p2
+       y = 'number of ticks until fire extinguishes',
+       colour = 'number of directions') +
+  theme_minimal()
 ```
 
 Plot both:
