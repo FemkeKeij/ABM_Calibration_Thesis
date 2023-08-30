@@ -25,6 +25,12 @@ library(patchwork)
 # for ggplot aesthetics
 library(directlabels)
 library(RColorBrewer)
+
+# for k-means clustering
+library(factoextra)
+
+# for computing trends in data
+library(trend)
 ```
 
 Random seed:
@@ -91,10 +97,91 @@ p3 <- fire_output %>%
 
 Plot both:
 ```{r}
-p1 + p2
+p1 / (p2 + p3) +
+  plot_layout(guides = 'collect')
 
 ggsave('figures/fire_parameterspace.pdf')
 ```
+
+# Identifying equifinality
+The parameter space plots show equifinality, especially around the lowest and highest tree densities.
+
+Apply a k-means clustering to the burn percentages at the middle and final timestep. Then see which parameter combinations end up in the same cluster.
+Start by formatting the data for the analysis
+```{r}
+kmeans_data <- fire_summary %>%
+  group_by(combination_number) %>%
+  mutate(time_label = ifelse(ticks == max(ticks), 'end',
+                             ifelse(ticks == floor(median(ticks)),
+                                    'middle', '--'))) %>%
+  filter(time_label %in% c('middle', 'end')) %>%
+  select(combination_number, burn_percentage, time_label) %>%
+  pivot_wider(names_from = time_label,
+              values_from = burn_percentage) %>%
+  select(middle, end) %>%
+  scale() 
+```
+
+Determine optimal number of clusters:
+- elbow method: we want to minimize the total within-cluster variation (or within-cluster sum of squares). we compute the wss for a number of different clusters, and then choose the number of clusters where we see the 'elbow' occur
+- average silhouette method: this approach inspects how well each observation fits within its cluster. If the average is high, that indicates good clustering.
+```{r}
+# elbow method
+fviz_nbclust(kmeans_data, kmeans, method = "wss")
+
+# silhouette method
+fviz_nbclust(kmeans_data, kmeans, method = "silhouette")
+```
+The optimal number of clusters is 2.
+
+K-means clustering with 2 centers:
+```{r}
+clustering <- kmeans(kmeans_data, centers = 2, nstart = 25)
+
+fviz_cluster(clustering, data = kmeans_data)
+```
+
+Now inspect which parameter combinations ended up in the same cluster.
+```{r}
+clustered_parameters <- fire_summary %>%
+  select(combination_number,
+         directions, density) %>%
+  distinct() %>%
+  add_column(cluster = clustering$cluster)
+
+
+p1 <- clustered_parameters %>%
+  ggplot(mapping = aes(x = as.factor(cluster),
+                       y = density,
+                       colour = as.factor(cluster),
+                       fill = as.factor(cluster))) +
+           geom_jitter(width = 0.2) +
+           geom_boxplot(alpha = 0.1, width = 0.4,
+                        outlier.colour = 'transparent') +
+           theme_minimal() +
+           labs(x = '2-means clusters',
+                y = 'tree density') +
+           theme(legend.position = 'none')
+
+p2 <- clustered_parameters %>%
+  ggplot(mapping = aes(x = as.factor(cluster),
+                       y = directions,
+                       colour = as.factor(cluster),
+                       fill = as.factor(cluster))) +
+           geom_jitter(width = 0.2) +
+           geom_boxplot(alpha = 0.1, width = 0.4,
+                        outlier.colour = 'transparent') +
+           theme_minimal() +
+           labs(x = '2-means clusters',
+                y = ' number of directions') +
+           theme(legend.position = 'none')
+
+p1 + p2
+```
+The clusters show that we can distinguish fairly well between high and low tree densities based on the burn percentage during the simulation. However, it is difficult to distinguish between the directions. Therefore, we can conclude that there is equifinality for the number of directions.
+
+# Identifying unidentifiable parameters
+
 
 # Summary statistics
 Some stats for the Fire model:
