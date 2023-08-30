@@ -418,7 +418,11 @@ fire_summary <- fire_output %>%
   group_by(density, directions, combination_number, ticks) %>%
   # take the mean burn percentage numbers over the 5 runs for each density
   summarise(mean_burn_percentage = mean(burn_percentage),
-            .groups = 'keep') 
+            .groups = 'keep') %>%
+  group_by(combination_number) %>%
+  mutate(time_label = ifelse(ticks == max(ticks), 'end',
+                             ifelse(ticks == floor(median(ticks)),
+                                    'middle', '--')))
 
 fire_summary %>%
   write_csv(file = 'data/processed/fire_summary.csv')
@@ -428,7 +432,7 @@ Also save non-summarised version:
 ```{r}
 fire_output %>%
   select(density, burn_percentage, directions, combination_number,
-         ticks, run) %>%
+         ticks, run, time_label) %>%
   write_csv(file = 'data/processed/fire_full.csv')
 ```
 
