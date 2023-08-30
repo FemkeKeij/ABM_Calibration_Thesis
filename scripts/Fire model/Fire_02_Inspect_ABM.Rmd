@@ -201,7 +201,62 @@ p1 / p2
 ```
 We cannot say anything based on the slopes here, because there is only 1 continuous input parameter and the other one is discrete.
 
+# Temporal autocorrelation plots
+Compute (partial) autocorrelation for each time series
+```{r}
+# dataframe to store results
+autocorrelation_df <- tibble(combination_number = numeric(),
+                             lag = numeric(),
+                             acf = numeric(),
+                             pacf = numeric())
 
+# per time series (parameter set)
+for(i in unique(fire_summary$combination_number)){
+  select <- fire_summary %>%
+    filter(combination_number == i)
+  
+  # compute acf and pacf
+  acf <- acf(select$burn_percentage, plot = FALSE,
+             lag.max = 20, type = 'correlation')$acf
+  pacf <- pacf(select$burn_percentage, plot = FALSE,
+               lag.max = 20)$acf
+  
+  # add 0 in front of the pacf series, since they start at lag 1, not 0
+  add_df <- tibble(combination_number = rep(i, length(acf)),
+                   lag = 1:length(acf),
+                   acf = acf,
+                   pacf = c(0, pacf))
+  
+  autocorrelation_df <- autocorrelation_df %>%
+    add_row(add_df)
+}
+```
+
+Plot (partial) autocorrelations:
+```{r}
+acf_plot <- autocorrelation_df %>%
+  mutate_at(vars(acf, pacf), ~ replace(., is.nan(.), 0)) %>%
+  ggplot(mapping = aes(x = lag, y = acf,
+                       colour = as.factor(combination_number))) +
+  geom_line() +
+  labs(y = 'autocorrelation burn percentage') +
+  theme_minimal() +
+  theme(legend.position = 'none')
+
+pacf_plot <- autocorrelation_df %>%
+  mutate_at(vars(acf, pacf), ~ replace(., is.nan(.), 0)) %>%
+  ggplot(mapping = aes(x = lag, y = pacf,
+                       colour = as.factor(combination_number))) +
+  geom_line() +
+  labs(y = 'partial autocorrelation burn percentage') +
+  theme_minimal() +
+  theme(legend.position = 'none')
+
+autocorrelation_plot <- acf_plot / pacf_plot
+
+ggsave(autocorrelation_plot,
+       filename = 'figures/fire_autocorrelation.pdf')
+```
 
 # Summary statistics
 Some stats for the Fire model:
