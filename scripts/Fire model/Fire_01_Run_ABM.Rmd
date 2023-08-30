@@ -427,7 +427,7 @@ fire_summary %>%
 Also save non-summarised version:
 ```{r}
 fire_output %>%
-  select(density, burn_percentage, density, combination_number,
+  select(density, burn_percentage, directions, combination_number,
          ticks, run) %>%
   write_csv(file = 'data/processed/fire_full.csv')
 ```
