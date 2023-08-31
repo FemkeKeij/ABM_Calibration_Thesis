@@ -9,3 +9,42 @@ output: pdf_document
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
+Clear working directory:
+```{r}
+rm(list = ls(all = TRUE)) 
+```
+
+Packages used:
+```{r}
+# for importing / working with tidy data
+library(tidyverse)
+
+# for arranging ggplots
+library(patchwork)
+
+# for ggplot aesthetics
+library(directlabels)
+library(RColorBrewer)
+
+# for k-means clustering
+library(factoextra)
+
+# for computing trends in data
+library(trend)
+```
+
+Random seed:
+```{r}
+set.seed(42)
+```
+
+Read in the data:
+```{r}
+# complete data set
+fire_output <- read_csv(
+  'data/processed/fire_full.csv')
+
+# output data summary
+fire_summary <- read_csv(
+  'data/processed/fire_summary.csv')
+```
