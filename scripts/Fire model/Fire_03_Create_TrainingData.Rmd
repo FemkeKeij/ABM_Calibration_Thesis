@@ -41,10 +41,83 @@ set.seed(42)
 Read in the data:
 ```{r}
 # complete data set
-fire_output <- read_csv(
+fire_full_clean <- read_csv(
   'data/processed/fire_full.csv')
 
 # output data summary
-fire_summary <- read_csv(
+fire_summary_clean <- read_csv(
   'data/processed/fire_summary.csv')
+```
+
+# Mimic real-world data: introduce random noise
+ON THE OUTPUT:
+Noise is maximum 20% of the mean output value (burn percentage) it is added to (such that smaller values can be as noisy as large ones). How much noise is added is determined by a N(0, 6). 
+```{r}
+# for the summarised runs
+fire_summary_noise <- fire_summary_clean %>%
+  rename(burn_percentage = mean_burn_percentage) %>%
+  # per parameter combination
+  group_by(combination_number) %>%
+  # compute mean burn percentage over full time series
+  mutate(mean_burn_percentage = burn_percentage) %>%
+  # add noise to each value of burn_percentage
+  rowwise %>%
+  mutate(burn_percentage_noise = burn_percentage +
+           mean_burn_percentage * rnorm(n = 1, mean = 0, sd = 6) / 100) %>%
+  # add a correction for values < 0, since it's in this case not possible for values to be negative
+  mutate(burn_percentage_noise = ifelse(burn_percentage_noise < 0, 0, burn_percentage_noise))
+
+# for the full data
+fire_full_noise <- fire_full_clean %>%
+  rename(burn_percentage = mean_burn_percentage) %>%
+  # per parameter combination
+  group_by(combination_number, run) %>%
+  # compute mean burn percentage over full time series
+  mutate(mean_burn_percentage = burn_percentage) %>%
+  # add noise to each value of burn_percentage
+  rowwise %>%
+  mutate(burn_percentage_noise = burn_percentage +
+           mean_burn_percentage * rnorm(n = 1, mean = 0, sd = 6) / 100) %>%
+  # add a correction for values < 0, since it's in this case not possible for values to be negative
+  mutate(burn_percentage_noise = ifelse(burn_percentage_noise < 0, 0, burn_percentage_noise))
+```
+Check that the noise was added properly:
+```{r}
+p1 <- fire_summary_noise %>%
+  ggplot(mapping = aes(x = burn_percentage, y = burn_percentage_noise)) +
+  geom_point(alpha = 0.5) +
+  geom_abline(intercept = 0, slope = 1,
+              colour = 'darkgreen', lty = 2) +
+  labs(x = 'burn percentage original',
+       y = 'burn percentage with noise') +
+  theme_minimal() +
+  ggtitle('summarised runs')
+
+p2 <- fire_full_noise %>%
+  ggplot(mapping = aes(x = burn_percentage, y = burn_percentage_noise)) +
+  geom_point(alpha = 0.5) +
+  geom_abline(intercept = 0, slope = 1,
+              colour = 'darkgreen', lty = 2) +
+  labs(x = 'burn percentage original',
+       y = 'burn percentage with noise') +
+  theme_minimal() +
+  ggtitle('full data')
+
+p1 + p2
+```
+
+IN TIME:
+Time series are shifted by a maximum of 10 time steps. The amount of noise added is sampled randomly from (-10 ; 10).
+```{r}
+# for the summarised runs
+fire_summary_noise <- fire_summary_noise %>%
+  group_by(combination_number) %>%
+  rowwise %>%
+  mutate(ticks_noise = ticks + sample(-10:10, 1))
+
+# for the full data
+fire_full_noise <- fire_full_noise %>%
+  group_by(combination_number, run) %>%
+  rowwise %>%
+  mutate(ticks_noise = ticks + sample(-10:10, 1))
 ```
