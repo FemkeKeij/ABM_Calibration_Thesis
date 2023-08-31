@@ -26,9 +26,6 @@ library(patchwork)
 library(directlabels)
 library(RColorBrewer)
 
-# for k-means clustering
-library(factoextra)
-
 # for computing trends in data
 library(trend)
 ```
@@ -41,18 +38,20 @@ set.seed(42)
 Read in the data:
 ```{r}
 # complete data set
-ws_output <- read_csv(
+ws_full_clean <- read_csv(
   'data/processed/wolfsheep_full.csv')
 
 # output data summary
-ws_summary <- read_csv(
+ws_summary_clean <- read_csv(
   'data/processed/wolfsheep_summary.csv')
 ```
 
 # Mimic real-world data: introduce random noise
+ON THE OUTPUT:
 Noise is maximum 20% of the mean output value it is added to (such that smaller values can be as noisy as large ones). How much noise is added is determined by a N(0, 6). 
 ```{r}
-ws_summary <- ws_summary %>%
+# for the summarised data
+ws_summary_noise <- ws_summary_clean %>%
   rename(sheep = mean_sheep,
          wolves = mean_wolves,
          grass = mean_grass) %>%
@@ -72,6 +71,9 @@ ws_summary <- ws_summary %>%
   mutate(sheep_noise = ifelse(sheep_noise < 0, 0, sheep_noise),
          wolves_noise = ifelse(wolves_noise < 0, 0, wolves_noise),
          grass_noise = ifelse(grass_noise < 0, 0, grass_noise))
+
+# for the full data
+
 ```
 Check that the noise was added properly:
 ```{r}
@@ -102,6 +104,8 @@ ws_summary %>%
   labs(x = 'grass original', y = 'grass noise') +
   theme_minimal()
 ```
+
+IN TIME:
 
 # Summarise data into time series
 Carella 2021 does the following for this model (with 200 time steps):
