@@ -5,91 +5,156 @@ library(mltools)
 
 ##--------------- COMPUTE ERRORS -------------------##
 # function to calculate errors for the fire model
-ComputeErrors <- function(results, fits, ticks = FALSE,
-                             density_means, pred_int_included = FALSE){
+ComputeErrors <- function(predictions, fold,
+                          mean_density){
+  # predictions: dataframe with results from fitting
+  # requires the columns density_true, density_pred,
+  # directions_true, directions_pred
+  # fold: CV fold for which to compute errors
+  # mean_density: mean density in training data
+  
+  # compute errors
+  errors <- predictions %>% 
+    # % correctly predicted direction + density in test set
+    summarise(perc_correct_params = sum(directions_true == directions_pred &
+                                          density_true == density_pred),
+              # % correctly predicted density in test set
+              perc_density_correct = sum(density_true == round(density_pred)) /
+                nrow(fire_test),
+              # % correctly predicted direction in test set
+              perc_direction_correct = sum(directions_true == directions_pred) /
+                nrow(fire_test),
+              # % predicted density within 10% of true density in test set
+              perc_correct_cat_density = sum(density_pred >=
+                                               density_true - 5 &
+                                               density_pred <=
+                                               density_true + 5) /
+                nrow(fire_test),
+              # RMSE of predicted vs. true density
+              RMSE_density = sqrt(sum((density_pred - density_true)^2))
+              / nrow(fire_test),
+              # NRMSE of predicted vs. true density
+              NRMSE_density = (sqrt(sum((density_pred - density_true)^2))
+                               / nrow(fire_test)) / sd(density_true),
+              # RMSE of predicted vs. true burn percentage
+              #RMSE_burn = sqrt(sum((burn_pred - burn_true)^2))
+              #/ nrow(fire_test),
+              # NRMSE of predicted vs. true burn percentage
+              #NRMSE_burn = (sqrt(sum((burn_pred - burn_true)^2))
+              #              / nrow(fire_test)) / sd(density_true),
+              # point prediction performance for density
+              point_pred_performance_density = 1 - 
+                sum(sqrt((density_pred - density_true)^2)) /
+                sum(sqrt((density_true - mean_density)^2)))
+  
+  # add columns for the metrics for directions
+  errors$directions_kappa <- NA
+  errors$directions_f1 <- NA
+  errors$directions_mcc <- NA
+  
+  # add the error measures for the directions
+  # compute confusion matrix
+  cm <- confusionMatrix(as.factor(predictions$directions_pred),
+                        as.factor(predictions$directions_true),
+                        mode = 'everything')
+  # retrieve kappa, F1, and MCC
+  errors$directions_kappa = cm$overall[2]
+  errors$directions_f1 = cm$byClass[7]
+  errors$directions_mcc = mcc(as.factor(predictions$directions_pred),
+                                as.factor(predictions$directions_true))
+  
+  # add info on CV fold
+  errors$fold <- fold
+  
+  # return data row
+  return(errors)
+}
+
+#ComputeErrors <- function(results, fits, ticks = FALSE,
+#                             density_means, pred_int_included = FALSE){
   # results: dataframe with results from fitting
   # density means: mean density in training data for each sample size
   # pred_int_included: set to TRUE if fitting produced prediction interval for density
   
   # copy mean density to appropriate sample sizes
-  errors <- merge(results, as_tibble(cbind(n, density_means)),
-                  by = c('n')) %>%
+#  errors <- merge(results, as_tibble(cbind(n, density_means)),
+       #           by = c('n')) %>%
     # per sample size, summarise
-    group_by(n) %>%
+#    group_by(n) %>%
               # % correctly predicted direction + density in test set
-    summarise(perc_correct_params = sum(direction_true == direction_pred &
-                                   density_true == round(density_pred))
-                / nrow(fire_test),
-              # % correctly predicted density in test set
-              perc_density_correct = sum(density_true ==
-                                           round(density_pred)) /
-                nrow(fire_test),
+#    summarise(perc_correct_params = sum(direction_true == direction_pred &
+ #                                  density_true == round(density_pred))
+  #              / nrow(fire_test),
+   #           # % correctly predicted density in test set
+    #          perc_density_correct = sum(density_true ==
+     #                                      round(density_pred)) /
+      #          nrow(fire_test),
               # % correctly predicted direction in test set
-              perc_direction_correct = sum(direction_true ==
-                                             direction_pred) /
-                nrow(fire_test),
+       #       perc_direction_correct = sum(direction_true ==
+                #                             direction_pred) /
+        #        nrow(fire_test),
               # % predicted density within 10% of true density in test set
-              perc_correct_cat_density = sum(density_pred >=
-                                       density_true - 5 &
-                                       density_pred <=
-                                       density_true + 5) /
-                nrow(fire_test),
+         #     perc_correct_cat_density = sum(density_pred >=
+          #                             density_true - 5 &
+           #                            density_pred <=
+            #                           density_true + 5) /
+             #   nrow(fire_test),
               # RMSE of predicted vs. true density
-              RMSE_density = sqrt(sum((density_pred - density_true)^2))
-                / nrow(fire_test),
+              #RMSE_density = sqrt(sum((density_pred - density_true)^2))
+               # / nrow(fire_test),
               # NRMSE of predicted vs. true density
-              NRMSE_density = (sqrt(sum((density_pred - density_true)^2))
-                               / nrow(fire_test)) / sd(density_true),
+              #NRMSE_density = (sqrt(sum((density_pred - density_true)^2))
+               #                / nrow(fire_test)) / sd(density_true),
               # RMSE of predicted vs. true burn percentage
-              RMSE_burn = sqrt(sum((burn_pred - burn_true)^2))
-                / nrow(fire_test),
+              #RMSE_burn = sqrt(sum((burn_pred - burn_true)^2))
+               # / nrow(fire_test),
               # NRMSE of predicted vs. true burn percentage
-              NRMSE_burn = (sqrt(sum((burn_pred - burn_true)^2))
-                            / nrow(fire_test)) / sd(density_true),
+              #NRMSE_burn = (sqrt(sum((burn_pred - burn_true)^2))
+               #             / nrow(fire_test)) / sd(density_true),
               # point prediction performance for density
-              point_pred_performance_density = 1 - 
-                sum(sqrt((density_pred - density_true)^2)) /
-                sum(sqrt((density_true - density_means)^2)))
+              #point_pred_performance_density = 1 - 
+               # sum(sqrt((density_pred - density_true)^2)) /
+               # sum(sqrt((density_true - density_means)^2)))
   
-  errors$direction_kappa <- numeric(nrow(errors))
-  errors$direction_f1 <- numeric(nrow(errors))
-  errors$direction_mcc <- numeric(nrow(errors))
+  #errors$direction_kappa <- numeric(nrow(errors))
+  #errors$direction_f1 <- numeric(nrow(errors))
+  #errors$direction_mcc <- numeric(nrow(errors))
   
   # add the error measures for the directions
-  for(i in 1:length(unique(results$n))){
-    results_sub <- results %>%
-      filter(n == unique(results$n)[i])
+  #for(i in 1:length(unique(results$n))){
+   # results_sub <- results %>%
+    #  filter(n == unique(results$n)[i])
     
-    cm <- confusionMatrix(as.factor(results_sub$direction_pred),
-                          as.factor(results_sub$direction_true),
-                          mode = 'everything')
+    #cm <- confusionMatrix(as.factor(results_sub$direction_pred),
+     #                     as.factor(results_sub$direction_true),
+      #                    mode = 'everything')
     
-    errors$direction_kappa[i] = cm$overall[2]
-    errors$direction_f1[i] = cm$byClass[7]
-    errors$direction_mcc[i] = mcc(as.factor(results_sub$direction_pred),
-                                  as.factor(results_sub$direction_true))
-  }
+    #errors$direction_kappa[i] = cm$overall[2]
+    #errors$direction_f1[i] = cm$byClass[7]
+    #errors$direction_mcc[i] = mcc(as.factor(results_sub$direction_pred),
+    #                              as.factor(results_sub$direction_true))
+  #}
   
   # if method produced prediction interval:
   # compute coverage and add to output
-  if(pred_int_included == TRUE){
-    errors2 <- merge(results, as_tibble(cbind(n, density_means)),
-          by = c('n')) %>%
-      group_by(n) %>%
-      summarise(coverage_density = sum(density_true <= density_pred_upr &
-                                 density_true >= density_pred_lwr) /
-                  nrow(fire_test))
-    coverage_density <- errors2$coverage_density
+  #if(pred_int_included == TRUE){
+   # errors2 <- merge(results, as_tibble(cbind(n, density_means)),
+    #      by = c('n')) %>%
+     # group_by(n) %>%
+      #summarise(coverage_density = sum(density_true <= density_pred_upr &
+       #                          density_true >= density_pred_lwr) /
+        #nrow(fire_test))
+    #coverage_density <- errors2$coverage_density
     
-    errors <- cbind(errors, coverage_density)
-  }
+    #errors <- cbind(errors, coverage_density)
+  #}
   
   # add indicator for ticks included yes or no
-  errors$ticks_included <- if(ticks == TRUE){'yes'} else{'no'}
+  #errors$ticks_included <- if(ticks == TRUE){'yes'} else{'no'}
   
   # return data frame
-  return(errors)
-}
+  #return(errors)
+#}
 
 ##--------------- PLOT ERRORS -------------------##
 # plot predicted vs. true density
