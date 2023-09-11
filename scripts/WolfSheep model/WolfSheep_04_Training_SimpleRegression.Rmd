@@ -74,13 +74,11 @@ WolfSheepSimpleRegressionFitting <- function(data,
   for(i in 1:5){
     # remove the test fold to create the training data
     dat_train <- data %>%
-      filter(!combination_number %in% unlist(flds[i])) %>%
-      select(- combination_number)
+      filter(!row_number() %in% unlist(flds[i]))
   
     # obtain the test fold
     dat_test <- data %>%
-      filter(combination_number %in% unlist(flds[i])) %>%
-      select(- combination_number)
+      filter(row_number %in% unlist(flds[i]))
   
     # train the linear regressions
     initial_sheep_lr <- lm(formula = initial_number_sheep ~ . 
@@ -216,7 +214,7 @@ WolfSheepSimpleRegressionFitting <- function(data,
 
 To perform:
 1) select relevant sample size, sampling method, summarisation of runs, noise, and type of datapoints
-2) select relevant data columns, include combination_number, ticks, outputs, and input parameters
+2) select relevant data columns, include ticks, outputs, and input parameters
 3) pivot wider to make each time step a column
 4) feed to fitting function
 
@@ -242,7 +240,7 @@ ws_trial <- ws_train %>%
          datapoints == 'timesteps',
          # select every 10 timesteps
          ticks %% 10 == 0) %>%
-  select(combination_number, ticks, sheep, wolves, grass,
+  select(ticks, sheep, wolves, grass,
          initial_number_sheep, initial_number_wolves,
          sheep_gain_from_food, wolves_gain_from_food,
          sheep_reproduce, wolves_reproduce, grass_regrowth,
