@@ -48,7 +48,7 @@ We fit a separate regression for each input parameter. All output variables serv
 
 Function to cross-validate linear regression
 ```{r}
-WolfSheepSimpleRegression <- function(data,
+WolfSheepSimpleRegressionFitting <- function(data,
                                       sample_size,
                                       sample_method,
                                       summarised_runs,
