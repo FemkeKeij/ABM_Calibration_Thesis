@@ -379,7 +379,6 @@ for(i in 2:nrow(fire_output)){
 }
 ############# end of code that can be removed #####################
 
-  
 # select 10 parameter combinations to look at
 inspect <- c(5, 6, 50, 51, 100, 101, 150, 151, 190, 191)
 
@@ -415,7 +414,7 @@ burn percentage at every tick of the simulation.
 ```{r}
 # group the data by parameter combination and ticks
 fire_summary <- fire_output %>%
-  group_by(density, directions, combination_number, ticks) %>%
+  group_by(combination_number, ticks) %>%
   # take the mean burn percentage numbers over the 5 runs for each density
   summarise(mean_burn_percentage = mean(burn_percentage),
             .groups = 'keep') %>%
@@ -537,7 +536,7 @@ fire_output <- read_csv("data/raw/fire_output2.csv",
 Manipulate data so that there is 1 outcome for each density:
 The outcomes for each density are summarised by their mean burn percentage, and the minimum and maximum burn percentage
 ```{r}
-# group the data by tree density
+# group the data by tree density and number of directions
 fire_output %>%
   group_by(density, directions) %>%
 # take the mean burn % over the 10 runs for each density
