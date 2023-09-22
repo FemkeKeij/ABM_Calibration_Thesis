@@ -22,6 +22,9 @@ Packages used:
 # for importing / working with tidy data
 library(tidyverse)
 
+# for creating cross-validation folds
+library(caret)
+
 # for ggplot
 library(directlabels)
 library(patchwork)
@@ -55,43 +58,19 @@ To perform:
 4) feed to fitting function
 
 ```{r}
-data <- fire_training %>%
-  filter(noise == 'noise',
-         datapoints == 'timesteps',
-         ticks %% 10 == 0) %>%
-  select(ticks, density, directions,
-         burn_percentage, mean_burn_percentage,
-         mean_burn, min_burn, sd_burn, trend_burn) %>%
-  pivot_wider(names_from = ticks,
-              values_from = burn_percentage) %>%
-  # I'm only looking at the first 200 timesteps here, because otherwise too much data drops out. I'll have to think about how I want to approach this.
-  select(1:20) %>%
-  drop_na()
-```
-
-
-```{r}
-FireSimpleRegressionFitting <- function(data,
-                                      sample_size,
-                                      sample_method,
-                                      summarised_runs,
-                                      noise,
-                                      datapoints){
+FireSimpleRegressionFitting <- function(data){
   # data: the data frame containing the input parameters as well as the relevant outputs
-  # sample_size, sample_method, summarised_runs, noise, datapoints: as in training data frame
   
   # create the folds
   flds <- createFolds(1:nrow(data),
                       k = 5, list = TRUE, returnTrain = FALSE)
 
   # to store the results
-  results_df <- tibble(fold = numeric(),
-                       variable = character(),
-                       perc_correct = numeric(),
-                       perc_correct_cat = numeric(),
-                       RMSE = numeric(),
-                       NRMSE = numeric(),
-                       point_pred = numeric())
+  results_df <- tibble(density = numeric(),
+                       directions = numeric(),
+                       density_pred = numeric(),
+                       directions_pred = numeric(),
+                       fold = numeric())
   
   # set directions 4 to 0 and 8 to 1 (eases interpretation of logistic regression)
   data <- data %>%
@@ -126,278 +105,168 @@ FireSimpleRegressionFitting <- function(data,
                                       4, 8)
     }
     
-    # compute mean input parameter in training data for
-    # point prediction computation
-    mean_density <- mean(dat_train$density)
-  
-    # add error computations
-    predictions <- tibble(density_pred = predict_density,
-                          density_true = dat_test$density,
+    # add the predictions to the data frame
+    results_new <- tibble(density = dat_test$density,
+                          directions = dat_test$directions,
+                          density_pred = predict_density[, 1],
                           directions_pred = predict_directions,
-                          directions_true = dat_test$directions)
-    
+                          fold = i)
     results_df <- results_df %>%
-      add_row(ComputeErrors(predictions,
-                            fold = i,
-                            mean_density = mean_density))
+      add_row(results_new)
+  }
+  # correct back to 4 and 8 directions
+  results_df <- results_df %>%
+    mutate(directions = ifelse(directions == 0, 4, 8))
+  
+  return(results_df)
+}
+```
+
+Compute the errors:
+```{r}
+FireComputeErrors <- function(predictions,
+                              sample_size, sample_method,
+                              summarise_runs, noise, datapoints){
+  # predictions: dataframe with results from fitting
+  # requires the columns density, density_pred,
+  # directions, directions_pred
+  
+  # sample_size, sample_method, summarise_runs, noie, datapoints: experiment info to be added to output data row
+  
+  # to store results
+  errors <- tibble(perc_correct_params = numeric(),
+                   perc_density_correct = numeric(),
+                   perc_directions_correct = numeric(),
+                   perc_correct_cat_density = numeric(),
+                   RMSE_density = numeric(),
+                   NRMSE_density = numeric(),
+                   point_pred_performance_density = numeric(),
+                   directions_kappa = numeric(),
+                   directions_f1 = numeric(),
+                   directions_mcc = numeric(),
+                   fold = numeric())
+  
+  # for each fold
+  for(i in 1:5){
+    # retrieve correct rows
+    dat <- predictions %>%
+      filter(fold == i)
+    
+    # compute mean density in training data
+    mean_density <- predictions %>%
+      filter(fold != i) %>%
+      summarise(mean(density))
+    
+    # compute errors
+    errors_new <- dat %>%
+      # % correctly predicted direction + density in test set
+      summarise(perc_correct_params = sum(
+        directions == directions_pred &
+          density == density_pred),
+      # % correctly predicted density in test set
+      perc_density_correct = sum(density == round(density_pred)) /
+                nrow(dat),
+      # % correctly predicted direction in test set
+      perc_directions_correct = sum(directions == directions_pred) /
+                nrow(dat),
+      # % predicted density within 10% of true density in test set
+      perc_correct_cat_density = sum(density_pred >= density - 5 &
+                                       density_pred <= density + 5) /
+                                        nrow(dat),
+      # RMSE of predicted vs. true density
+      RMSE_density = sqrt(sum((density_pred - density)^2))
+              / nrow(dat),
+      # NRMSE of predicted vs. true density
+      NRMSE_density = (sqrt(sum((density_pred - density)^2))
+                               / nrow(dat)) / sd(density),
+      # point prediction performance for density
+      point_pred_performance_density = 1 - 
+                sum(sqrt((density_pred - density)^2)) /
+                sum(sqrt((density - mean_density)^2)))
+  
+    # add columns for the metrics for directions
+    errors_new$directions_kappa <- NA
+    errors_new$directions_f1 <- NA
+    errors_new$directions_mcc <- NA
+  
+    # add the error measures for the directions
+    # compute confusion matrix
+    cm <- confusionMatrix(as.factor(predictions$directions_pred),
+                          as.factor(predictions$directions),
+                          mode = 'everything')
+    # retrieve kappa, F1, and MCC
+    errors_new$directions_kappa = cm$overall[2]
+    errors_new$directions_f1 = cm$byClass[7]
+    errors_new$directions_mcc = mcc(as.factor(predictions$directions_pred),
+                                as.factor(predictions$directions))
+    
+    # add fold & add to errors data frame
+    errors_new$fold <- i
+    errors <- errors %>%
+      add_row(errors_new)
   }
   
-  # compute mean of each statistic over the 5 folds
-  results_df <- results_df %>%
-    group_by(variable)%>%
+  # compute the mean statistics for each fold
+  errors <- errors %>%
     summarise_all(mean) %>%
     select(- fold) %>%
     # add the experiment info to the df
     add_column(sample_size = sample_size,
                sample_method = sample_method,
-               summarised_runs = summarised_runs,
+               summarise_runs = summarise_runs,
                noise = noise,
                datapoints = datapoints)
   
-  return(results_df)
+  # return data row
+  return(errors)
 }
+```
 
+The summarised data does not contain enough rows to allow for computing the linear regression. Therefore, I only use the non-summarised version (which as shown in the first script is not an issue in this case).
+In addition, in the latest timesteps the data are too similar for the linear regression to work on them (LOOK UP WHAT THIS IS CALLED AGAIN). Therefore, I cap the timeseries at timestep 650.
+```{r}
+data <- fire_training %>%
+  filter(datapoints == 'timesteps',
+         summarise_runs == 'full',
+         # if I want to work with the noise version, use ticks_noise here
+         # actually I'd need both, since only the test data should have noise, I think I'd have to make 2 separate dataframes in that case
+         ticks %% 20 == 0,
+         ticks < 650) %>%
+  # if I want to work with the noise version, use burn_percentage_noise and/or ticks_noise here instead of burn_percentage and/or ticks
+  select(ticks, density, directions, burn_percentage,
+         mean_burn, min_burn, sd_burn, trend_burn) %>%
+  # pivot wider to make it easier to use the timesteps as
+  # predictors in the linear regression
+  pivot_wider(names_from = ticks,
+              values_from = burn_percentage)
 
-LinearRegressionFitting <- function(data,
-                                    formula_density,
-                                    formula_directions){
-  # create tibble to store data
-  results <- tibble(CV_fold = numeric(nrow(data)),
-                    true_density = numeric(nrow(data)),
-                    true_directions = numeric(nrow(data)),
-                    pred_density = numeric(nrow(data)),
-                    pred_directions = numeric(nrow(data)))
-  
-  # create a matrix that relates the rows the data to the cross-validation fold they are in
-  indices <- sample(nrow(data))
-  folds <- cbind(indices, cut(indices, breaks = 5, labels = FALSE))
-  colnames(folds) <- c('indices', 'fold')
-  folds <- as_tibble(folds)
-  
-  # for every cross-validation fold
-  for(i in 1:5){
-    test_indices <- folds %>%
-      filter(fold == i) %>%
-      select(indices)
-    # separate the training and test data
-    training_dat <- data %>%
-      slice(-test_indices)
-    test_dat <- data %>%
-      slice(test_indices)
-    
-    # train the linear & logistic regressions
-    fir_lm_density <- lm(data = training_dat,
-                         formula = formula_density)
-    fit_glm_directions <- glm(data = training_dat,
-                              formula = formula_directions)
-    
-    # predict the density & directions
-    predict_density <- predict.lm(fit_lm_density,
-                                     newdata = test_dat,
-                                     interval = 'prediction')
-    predict_directions <- predict.glm(fit_glm_directions,
-                                      newdata = test_dat,
-                                      type = 'response')
-    
-    
-  }  
+# some simulations end earlier than others, extend the data
+# so that each simulation has all timesteps, where added timesteps
+# take on the burn_percentage value form earlier timesteps
+for(i in 7:ncol(data)){
+  for(j in 1:nrow(data)){
+    if(is.na(data[j, i])){
+      data[j, i] <- data[j, i - 1] 
+    }
+  }
 }
+# going to have to adapt this also for the ticks_noise version
+
+out <- FireSimpleRegressionFitting(data)
+```
+
+```{r}
+FireComputeErrors(out, sample_size = 198,
+                  sample_method = 'full',
+                  summarise_runs = 'full',
+                  noise = 'clean',
+                  datapoints = 'timesteps 20')
 ```
 
 Run for each combination:
 - full time series, 10 timesteps, 20 timesteps, endpoints only (I'm leaving out the 50 timesteps here since the simulations are mostly too short for that)
 - runs summarised or not
 - data without noise, data with output noise, data with output and temporal noise
-```{r}
-# endpoints, summarised runs, no noise
-data <- fire_training %>%
-  filter(summarised_runs == 'summarised',
-         noise == 'clean',
-         datapoints == 'endpoints') %>%
-  LinearRegressionFitting(formula_density =
-                            'density ~ burn_percentage',
-                          formula_directions =
-                            'directions ~ burn_percentage')
-
-# endpoints, summarised runs, output noise
-results_ <- fire_training %>%
-  filter(summarised_runs == 'summarised',
-         noise == 'noise',
-         datapoints == 'endpoints') %>%
-  LinearRegressionFitting(formula_density =
-                            'density ~ burn_percentage_noise',
-                          formula_directions =
-                            'directions ~ burn_percentage_noise')
-
-
-```
-
-```{r}
-LinearRegressionFitting <- function(ticks = FALSE){
-  # table to store all output
-  length_tib <- sum(nrow(fire_test) * length(n))
-  regression_results <- tibble(direction_true = numeric(length_tib),
-                              direction_pred = numeric(length_tib),
-                              density_true = numeric(length_tib),
-                              density_pred = numeric(length_tib),
-                              density_pred_lwr = numeric(length_tib),
-                              density_pred_upr = numeric(length_tib),
-                              burn_true = numeric(length_tib),
-                              burn_pred = numeric(length_tib),
-                              n = numeric(length_tib),
-                              ticks_included = numeric(length_tib))
-  regression_fits <- tibble(density_fit = numeric(),
-                            direction_fit = numeric(),
-                            n = numeric())
-  # vector to store mean density in each training sample
-  # (to calculate point prediction performance later on)
-  density_means <- numeric(length(n))
-
-  count <- 1
-  
-  # for each sample size
-  for(i in 1:length(n)){
-    # sample training set
-    ind_sample <- sample(1:nrow(fire_train), size = n[i])
-    fire_train_sub <- fire_train[ind_sample, ]
-    # calculate and save mean density in training set
-    density_means[i] <- mean(fire_train_sub$density)
-    
-    if(ticks == TRUE){
-      # linear regression to predict density when ticks are included
-      fit_lm_density <- lm(data = fire_train_sub,
-                               formula = 'density ~ burn_percentage + directions + ticks')
-      # logistic regression to predict directions when ticks are included
-      fit_glm_directions <- glm(data = fire_train_sub,
-                                    formula = 'directions ~ burn_percentage + density + ticks',
-                                    family = binomial(link = 'logit'))
-      
-    } else{
-      # linear regression to predict density when ticks are excluded
-      fit_lm_density <- lm(data = fire_train_sub,
-                               formula = 'density ~ burn_percentage + directions')
-      # logistic regression to predict directions when ticks are excluded
-      fit_glm_directions <- glm(data = fire_train_sub,
-                                      formula = 'directions ~ burn_percentage + density',
-                                      family = binomial(link = 'logit'))
-    }
-    # predict density in test data using fitted regression
-    # include prediction interval to compute coverage later on
-    predict_lm_density <- predict.lm(fit_lm_density,
-                                             newdata = fire_test,
-                                     interval = 'prediction')
-    # retrieve fitted training data
-    fit_lm_density <- predict.lm(fit_lm_density)
-    # predict direction in test data using fitted regression
-    predict_glm_directions <- predict.glm(fit_glm_directions,
-                                                  newdata = fire_test,
-                                                  type = 'response')
-    # retrieve fitted training data
-    fit_glm_directions <- predict.glm(fit_glm_directions)
-    # correct the predicted directions from probabilities to '4' and '8'
-    # to match test data
-    for(k in 1:nrow(fire_test)){
-      if(predict_glm_directions[k] < 0.5){
-        predict_glm_directions[k] <- 4
-      } else{
-        predict_glm_directions[k] <- 8
-      }
-    }
-    # correct the fitted directions to '4' and '8'
-    for(k in 1:nrow(fire_train_sub)){
-      if(fit_glm_directions[k] < 0){
-        fit_glm_directions[k] <- 4
-      } else{
-        fit_glm_directions[k] <- 8
-      }
-    }
-    
-    # store the fitted data
-    add_dat <- tibble(density_fit = fit_lm_density,
-                  direction_fit = fit_glm_directions,
-                  n = n[i])
-    regression_fits <- rbind(regression_fits, add_dat)
-    
-    # for each instance of the test data
-    for(j in 1:nrow(fire_test)){
-      # find an instance in the training data that matches the directions
-      # and density
-      ind <- which(fire_train$density == round(predict_lm_density[j,1]) &
-                     fire_train$directions ==
-                     predict_glm_directions[j])
-      if(length(ind) > 1){
-        ind <- sample(ind, size = 1)
-      }
-      # find predicted burn percentage based on training data
-      burn_pred <- fire_train$burn_percentage[ind]
-      
-      # store all results in table
-      regression_results$direction_true[count] <- fire_test$directions[j]
-      regression_results$direction_pred[count] <-
-        predict_glm_directions[j]
-      regression_results$density_true[count] <- fire_test$density[j]
-      regression_results$density_pred[count] <- predict_lm_density[j,1]
-      regression_results$density_pred_lwr[count] <-
-        predict_lm_density[j,2]
-      regression_results$density_pred_upr[count] <-
-        predict_lm_density[j,3]
-      regression_results$burn_true[count] <- fire_test$burn_percentage[j]
-      regression_results$burn_pred[count] <- burn_pred
-      regression_results$n[count] <- n[i]
-      regression_results$ticks_included[count] <- if(ticks){'yes'}else{'no'}
-      
-      count <- count + 1
-    }
-  }
-  
-  # correct format of direction_true variable
-  regression_results %>%
-    mutate(direction_true = replace(direction_true, direction_true == 1, 4),
-         direction_true = replace(direction_true, direction_true == 2, 8)) ->
-    regression_results
-  
-  # return table with results, density means, and fitted regression values
-  return(list(regression_results, density_means, regression_fits))
-}
-```
-
-```{r}
-# fit regressions with ticks
-regression_results_ticks <- LinearRegressionFitting(ticks = TRUE)
-density_means_ticks <- regression_results_ticks[[2]]
-regression_fits_ticks <- regression_results_ticks[[3]]
-regression_results_ticks <- regression_results_ticks[[1]]
-
-# fit regressions without ticks
-regression_results_noticks <- LinearRegressionFitting(ticks = FALSE)
-density_means_noticks <- regression_results_noticks[[2]]
-regression_fits_noticks <- regression_results_noticks[[3]]
-regression_results_noticks <- regression_results_noticks[[1]]
-```
-
-```{r}
-# run error calculations
-regression_errors_ticks <- ComputeErrors(regression_results_ticks,
-                                         ticks = TRUE,
-                                         density_means_ticks,
-                                         pred_int_included = TRUE)
-regression_errors_noticks <- ComputeErrors(regression_results_noticks,
-                                           ticks = FALSE,
-                                           density_means_noticks,
-                                           pred_int_included = TRUE)
-```
-
-Merge results
-```{r}
-regression_results <- rbind(regression_results_noticks,
-                            regression_results_ticks)
-write_csv(regression_results,
-          'data/processed/fire_regression_results.csv')
-
-regression_errors <- rbind(regression_errors_noticks, regression_errors_ticks)
-write_csv(regression_errors,
-          'data/processed/fire_regression_errors.csv')
-```
 
 # Plots
 ```{r}
