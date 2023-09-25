@@ -470,6 +470,12 @@ errors <- errors %>%
   add_row(errors_data_end_sum_outputnoise)
 ```
 
+Save results:
+```{r}
+errors %>%
+  write_csv(file = 'data/results/fire_errors.csv')
+```
+
 # Plots
 % correctly predicted parameters (density & directions):
 ```{r}
