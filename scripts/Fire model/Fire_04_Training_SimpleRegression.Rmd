@@ -25,6 +25,9 @@ library(tidyverse)
 # for creating cross-validation folds
 library(caret)
 
+# for error computation
+library(mltools)
+
 # for ggplot
 library(directlabels)
 library(patchwork)
@@ -58,11 +61,14 @@ To perform:
 4) feed to fitting function
 
 ```{r}
-FireSimpleRegressionFitting <- function(data){
-  # data: the data frame containing the input parameters as well as the relevant outputs
+FireSimpleRegressionFitting <- function(data_clean, data_noise){
+  # data_clean: the data frame containing the input parameters as well as the relevant outputs
+  # data_noise: if testing should be done on noisy data, supply data with noise here
+  
+  noise <- ifelse(any(is.na(data_noise)), FALSE, TRUE)
   
   # create the folds
-  flds <- createFolds(1:nrow(data),
+  flds <- createFolds(1:nrow(data_clean),
                       k = 5, list = TRUE, returnTrain = FALSE)
 
   # to store the results
@@ -73,18 +79,27 @@ FireSimpleRegressionFitting <- function(data){
                        fold = numeric())
   
   # set directions 4 to 0 and 8 to 1 (eases interpretation of logistic regression)
-  data <- data %>%
+  data_clean <- data_clean %>%
     mutate(directions = ifelse(directions == 4, 0, 1))
-
+  if(noise){
+    data_noise <- data_noise %>%
+      mutate(directions = ifelse(directions == 4, 0, 1))
+  }
+  
   # for each cross-validation fold
   for(i in 1:5){
     # remove the test fold to create the training data
-    dat_train <- data %>%
+    dat_train <- data_clean %>%
       filter(!row_number() %in% unlist(flds[i]))
-  
+    
     # obtain the test fold
-    dat_test <- data %>%
-      filter(row_number() %in% unlist(flds[i]))
+    if(noise){
+      dat_test <- data_noise %>%
+        filter(row_number() %in% unlist(flds[i]))
+    } else {
+      dat_test <- data_clean %>%
+        filter(row_number() %in% unlist(flds[i]))
+    }
   
     # train the linear & logistic regressions
     fit_lm_density <- lm(formula = density ~ . - directions,
@@ -162,17 +177,17 @@ FireComputeErrors <- function(predictions,
       # % correctly predicted direction + density in test set
       summarise(perc_correct_params = sum(
         directions == directions_pred &
-          density == density_pred),
+          density == round(density_pred)) / nrow(dat) * 100,
       # % correctly predicted density in test set
       perc_density_correct = sum(density == round(density_pred)) /
-                nrow(dat),
+                nrow(dat) * 100,
       # % correctly predicted direction in test set
       perc_directions_correct = sum(directions == directions_pred) /
-                nrow(dat),
+                nrow(dat) * 100,
       # % predicted density within 10% of true density in test set
       perc_correct_cat_density = sum(density_pred >= density - 5 &
                                        density_pred <= density + 5) /
-                                        nrow(dat),
+                                        nrow(dat) * 100,
       # RMSE of predicted vs. true density
       RMSE_density = sqrt(sum((density_pred - density)^2))
               / nrow(dat),
@@ -222,51 +237,481 @@ FireComputeErrors <- function(predictions,
 }
 ```
 
-The summarised data does not contain enough rows to allow for computing the linear regression. Therefore, I only use the non-summarised version (which as shown in the first script is not an issue in this case).
-In addition, in the latest timesteps the data are too similar for the linear regression to work on them (LOOK UP WHAT THIS IS CALLED AGAIN). Therefore, I cap the timeseries at timestep 650.
-```{r}
-data <- fire_training %>%
-  filter(datapoints == 'timesteps',
-         summarise_runs == 'full',
-         # if I want to work with the noise version, use ticks_noise here
-         # actually I'd need both, since only the test data should have noise, I think I'd have to make 2 separate dataframes in that case
-         ticks %% 20 == 0,
-         ticks < 650) %>%
-  # if I want to work with the noise version, use burn_percentage_noise and/or ticks_noise here instead of burn_percentage and/or ticks
-  select(ticks, density, directions, burn_percentage,
-         mean_burn, min_burn, sd_burn, trend_burn) %>%
-  # pivot wider to make it easier to use the timesteps as
-  # predictors in the linear regression
-  pivot_wider(names_from = ticks,
-              values_from = burn_percentage)
-
-# some simulations end earlier than others, extend the data
-# so that each simulation has all timesteps, where added timesteps
-# take on the burn_percentage value form earlier timesteps
-for(i in 7:ncol(data)){
-  for(j in 1:nrow(data)){
-    if(is.na(data[j, i])){
-      data[j, i] <- data[j, i - 1] 
-    }
-  }
-}
-# going to have to adapt this also for the ticks_noise version
-
-out <- FireSimpleRegressionFitting(data)
-```
-
-```{r}
-FireComputeErrors(out, sample_size = 198,
-                  sample_method = 'full',
-                  summarise_runs = 'full',
-                  noise = 'clean',
-                  datapoints = 'timesteps 20')
-```
-
 Run for each combination:
 - full time series, 10 timesteps, 20 timesteps, endpoints only (I'm leaving out the 50 timesteps here since the simulations are mostly too short for that)
 - runs summarised or not
 - data without noise, data with output noise, data with output and temporal noise
+
+Some of the data columns are so similar that the regression cannot distinguish between them (LOOK UP WHAT THIS IS CALLED AGAIN). For that reason, I cap the timeseries at timestep 650. This removes part of the problem.
+
+Function to fill out data so that each simulation has the same length of time series: (the final simulation value is copied to all other timesteps after)
+```{r}
+FillOutData <- function(data){
+  # check if any are missing the first time step (can happen in the noise case)
+  if(any(is.na(data[, 7]))){
+    # add value from second timepoint
+    for(j in 1:nrow(data)){
+      if(is.na(data[j, 7])){
+        data[j, 7] <- data[j, 8]
+      }
+    }
+  }
+  
+  # for each burn_percentage timestep column
+  for(i in 7:ncol(data)){
+    # go through each row
+    for(j in 1:nrow(data)){
+      # if the value is NA (because simulation stopped earlier)
+      if(is.na(data[j, i])){
+        # copy value from previous column
+        data[j, i] <- data[j, i - 1]
+      }
+    }
+  }
+  return(data)
+}
+```
+
+10 timesteps, not summarised
+```{r}
+# 10 timesteps, not summarised, data without noise
+data_10_full_clean <- fire_training %>%
+  filter(datapoints == 'timesteps',
+         summarise_runs == 'full',
+         ticks %% 10 == 0,
+         ticks < 650) %>%
+  select(ticks, density, directions, burn_percentage,
+         mean_burn, min_burn, sd_burn, trend_burn) %>%
+  pivot_wider(names_from = ticks,
+              values_from = burn_percentage)
+
+data_10_full_clean <- FillOutData(data_10_full_clean)
+
+fit_data_10_full_clean <-
+  FireSimpleRegressionFitting(data_10_full_clean,
+                              data_noise = NA)
+errors_data_10_full_clean <- 
+  FireComputeErrors(fit_data_10_full_clean,
+                    sample_size = 198,
+                    sample_method = 'full',
+                    summarise_runs = 'full',
+                    noise = 'clean',
+                    datapoints = 'timesteps 10')
+
+# dataframe to store all errors
+errors <- errors_data_10_full_clean
+
+# 10 timesteps, not summarised, data with output noise
+data_10_full_outputnoise <- fire_training %>%
+  filter(datapoints == 'timesteps',
+         summarise_runs == 'full',
+         ticks %% 10 == 0,
+         ticks < 650) %>%
+  select(ticks, density, directions, burn_percentage_noise,
+         mean_burn, min_burn, sd_burn, trend_burn) %>%
+  pivot_wider(names_from = ticks,
+              values_from = burn_percentage_noise)
+
+data_10_full_outputnoise <- FillOutData(data_10_full_outputnoise)
+
+fit_data_10_full_outputnoise <-
+  FireSimpleRegressionFitting(data_10_full_clean,
+                              data_10_full_outputnoise)
+errors_data_10_full_outputnoise <- 
+  FireComputeErrors(fit_data_10_full_outputnoise,
+                    sample_size = 198,
+                    sample_method = 'full',
+                    summarise_runs = 'full',
+                    noise = 'output noise',
+                    datapoints = 'timesteps 10')
+
+errors <- errors %>%
+  add_row(errors_data_10_full_outputnoise)
+
+# 10 timesteps, not summarised, data with output and temporal noise
+data_10_full_doublenoise <- fire_training %>%
+  filter(datapoints == 'timesteps',
+         summarise_runs == 'full',
+         ticks_noise %% 10 == 0,
+         ticks_noise < 650 & ticks_noise > 0) %>%
+  select(ticks_noise, density, directions, burn_percentage_noise,
+         mean_burn, min_burn, sd_burn, trend_burn) %>%
+  pivot_wider(names_from = ticks_noise,
+              values_from = burn_percentage_noise)
+
+data_10_full_doublenoise <- FillOutData(data_10_full_doublenoise)
+
+fit_data_10_full_doublenoise <-
+  FireSimpleRegressionFitting(data_10_full_clean,
+                              data_10_full_doublenoise)
+errors_data_10_full_doublenoise <- 
+  FireComputeErrors(fit_data_10_full_doublenoise,
+                    sample_size = 198,
+                    sample_method = 'full',
+                    summarise_runs = 'full',
+                    noise = 'double noise',
+                    datapoints = 'timesteps 10')
+
+errors <- errors %>%
+  add_row(errors_data_10_full_doublenoise)
+```
+
+10 timesteps, summarised
+```{r}
+# 10 timesteps, summarised, data without noise
+data_10_sum_clean <- fire_training %>%
+  filter(datapoints == 'timesteps',
+         summarise_runs == 'summarised',
+         ticks %% 10 == 0,
+         ticks < 650) %>%
+  select(ticks, density, directions, burn_percentage,
+         mean_burn, min_burn, sd_burn, trend_burn) %>%
+  pivot_wider(names_from = ticks,
+              values_from = burn_percentage)
+
+data_10_sum_clean <- FillOutData(data_10_sum_clean)
+
+fit_data_10_sum_clean <-
+  FireSimpleRegressionFitting(data_10_sum_clean,
+                              data_noise = NA)
+errors_data_10_sum_clean <- 
+  FireComputeErrors(fit_data_10_sum_clean,
+                    sample_size = 198,
+                    sample_method = 'full',
+                    summarise_runs = 'summarised',
+                    noise = 'clean',
+                    datapoints = 'timesteps 10')
+
+errors <- errors %>%
+  add_row(errors_data_10_sum_clean)
+
+# 10 timesteps, summarised, data with output noise
+data_10_sum_outputnoise <- fire_training %>%
+  filter(datapoints == 'timesteps',
+         summarise_runs == 'summarised',
+         ticks %% 10 == 0,
+         ticks < 650) %>%
+  select(ticks, density, directions, burn_percentage_noise,
+         mean_burn, min_burn, sd_burn, trend_burn) %>%
+  pivot_wider(names_from = ticks,
+              values_from = burn_percentage_noise)
+
+data_10_sum_outputnoise <- FillOutData(data_10_sum_outputnoise)
+
+fit_data_10_sum_outputnoise <-
+  FireSimpleRegressionFitting(data_10_sum_clean,
+                              data_10_sum_outputnoise)
+errors_data_10_sum_outputnoise <- 
+  FireComputeErrors(fit_data_10_sum_outputnoise,
+                    sample_size = 198,
+                    sample_method = 'full',
+                    summarise_runs = 'summarised',
+                    noise = 'output noise',
+                    datapoints = 'timesteps 10')
+
+errors <- errors %>%
+  add_row(errors_data_10_sum_outputnoise)
+
+# 10 timesteps, summarised, data with output and temporal noise
+data_10_sum_doublenoise <- fire_training %>%
+  filter(datapoints == 'timesteps',
+         summarise_runs == 'summarised',
+         ticks_noise %% 10 == 0,
+         ticks_noise < 650 & ticks_noise > 0) %>%
+  select(ticks_noise, density, directions, burn_percentage_noise,
+         mean_burn, min_burn, sd_burn, trend_burn) %>%
+  pivot_wider(names_from = ticks_noise,
+              values_from = burn_percentage_noise)
+
+data_10_sum_doublenoise <- FillOutData(data_10_sum_doublenoise)
+
+fit_data_10_sum_doublenoise <-
+  FireSimpleRegressionFitting(data_10_sum_clean,
+                              data_10_sum_doublenoise)
+errors_data_10_sum_doublenoise <- 
+  FireComputeErrors(fit_data_10_sum_doublenoise,
+                    sample_size = 198,
+                    sample_method = 'full',
+                    summarise_runs = 'summarised',
+                    noise = 'double noise',
+                    datapoints = 'timesteps 10')
+
+errors <- errors %>%
+  add_row(errors_data_10_sum_doublenoise)
+```
+
+20 timesteps, not summarised
+```{r}
+# 20 timesteps, not summarised, data without noise
+data_20_full_clean <- fire_training %>%
+  filter(datapoints == 'timesteps',
+         summarise_runs == 'full',
+         ticks %% 20 == 0,
+         ticks < 650) %>%
+  select(ticks, density, directions, burn_percentage,
+         mean_burn, min_burn, sd_burn, trend_burn) %>%
+  pivot_wider(names_from = ticks,
+              values_from = burn_percentage)
+
+data_20_full_clean <- FillOutData(data_20_full_clean)
+
+fit_data_20_full_clean <-
+  FireSimpleRegressionFitting(data_20_full_clean,
+                              data_noise = NA)
+errors_data_20_full_clean <- 
+  FireComputeErrors(fit_data_20_full_clean,
+                    sample_size = 198,
+                    sample_method = 'full',
+                    summarise_runs = 'full',
+                    noise = 'clean',
+                    datapoints = 'timesteps 20')
+
+# dataframe to store all errors
+errors <- errors %>%
+  add_row(errors_data_20_full_clean)
+
+# 20 timesteps, not summarised, data with output noise
+data_20_full_outputnoise <- fire_training %>%
+  filter(datapoints == 'timesteps',
+         summarise_runs == 'full',
+         ticks %% 20 == 0,
+         ticks < 650) %>%
+  select(ticks, density, directions, burn_percentage_noise,
+         mean_burn, min_burn, sd_burn, trend_burn) %>%
+  pivot_wider(names_from = ticks,
+              values_from = burn_percentage_noise)
+
+data_20_full_outputnoise <- FillOutData(data_20_full_outputnoise)
+
+fit_data_20_full_outputnoise <-
+  FireSimpleRegressionFitting(data_20_full_clean,
+                              data_20_full_outputnoise)
+errors_data_20_full_outputnoise <- 
+  FireComputeErrors(fit_data_20_full_outputnoise,
+                    sample_size = 198,
+                    sample_method = 'full',
+                    summarise_runs = 'full',
+                    noise = 'output noise',
+                    datapoints = 'timesteps 20')
+
+errors <- errors %>%
+  add_row(errors_data_20_full_outputnoise)
+
+# 20 timesteps, not summarised, data with output and temporal noise
+data_20_full_doublenoise <- fire_training %>%
+  filter(datapoints == 'timesteps',
+         summarise_runs == 'full',
+         ticks_noise %% 20 == 0,
+         ticks_noise < 650 & ticks_noise > 0) %>%
+  select(ticks_noise, density, directions, burn_percentage_noise,
+         mean_burn, min_burn, sd_burn, trend_burn) %>%
+  pivot_wider(names_from = ticks_noise,
+              values_from = burn_percentage_noise)
+
+data_20_full_doublenoise <- FillOutData(data_20_full_doublenoise)
+
+fit_data_20_full_doublenoise <-
+  FireSimpleRegressionFitting(data_20_full_clean,
+                              data_20_full_doublenoise)
+errors_data_20_full_doublenoise <- 
+  FireComputeErrors(fit_data_20_full_doublenoise,
+                    sample_size = 198,
+                    sample_method = 'full',
+                    summarise_runs = 'full',
+                    noise = 'double noise',
+                    datapoints = 'timesteps 20')
+
+errors <- errors %>%
+  add_row(errors_data_20_full_doublenoise)
+```
+
+20 timesteps, summarised
+```{r}
+# 20 timesteps, summarised, data without noise
+data_20_sum_clean <- fire_training %>%
+  filter(datapoints == 'timesteps',
+         summarise_runs == 'summarised',
+         ticks %% 20 == 0,
+         ticks < 650) %>%
+  select(ticks, density, directions, burn_percentage,
+         mean_burn, min_burn, sd_burn, trend_burn) %>%
+  pivot_wider(names_from = ticks,
+              values_from = burn_percentage)
+
+data_20_sum_clean <- FillOutData(data_20_sum_clean)
+
+fit_data_20_sum_clean <-
+  FireSimpleRegressionFitting(data_20_sum_clean,
+                              data_noise = NA)
+errors_data_20_sum_clean <- 
+  FireComputeErrors(fit_data_20_sum_clean,
+                    sample_size = 198,
+                    sample_method = 'full',
+                    summarise_runs = 'summarised',
+                    noise = 'clean',
+                    datapoints = 'timesteps 20')
+
+errors <- errors %>%
+  add_row(errors_data_20_sum_clean)
+
+# 20 timesteps, summarised, data with output noise
+data_20_sum_outputnoise <- fire_training %>%
+  filter(datapoints == 'timesteps',
+         summarise_runs == 'summarised',
+         ticks %% 20 == 0,
+         ticks < 650) %>%
+  select(ticks, density, directions, burn_percentage_noise,
+         mean_burn, min_burn, sd_burn, trend_burn) %>%
+  pivot_wider(names_from = ticks,
+              values_from = burn_percentage_noise)
+
+data_20_sum_outputnoise <- FillOutData(data_20_sum_outputnoise)
+
+fit_data_20_sum_outputnoise <-
+  FireSimpleRegressionFitting(data_20_sum_clean,
+                              data_20_sum_outputnoise)
+errors_data_20_sum_outputnoise <- 
+  FireComputeErrors(fit_data_20_sum_outputnoise,
+                    sample_size = 198,
+                    sample_method = 'full',
+                    summarise_runs = 'summarised',
+                    noise = 'output noise',
+                    datapoints = 'timesteps 20')
+
+errors <- errors %>%
+  add_row(errors_data_20_sum_outputnoise)
+
+# 20 timesteps, summarised, data with output and temporal noise
+data_20_sum_doublenoise <- fire_training %>%
+  filter(datapoints == 'timesteps',
+         summarise_runs == 'summarised',
+         ticks_noise %% 20 == 0,
+         ticks_noise < 650 & ticks_noise > 0) %>%
+  select(ticks_noise, density, directions, burn_percentage_noise,
+         mean_burn, min_burn, sd_burn, trend_burn) %>%
+  pivot_wider(names_from = ticks_noise,
+              values_from = burn_percentage_noise)
+
+data_20_sum_doublenoise <- FillOutData(data_20_sum_doublenoise)
+
+fit_data_20_sum_doublenoise <-
+  FireSimpleRegressionFitting(data_20_sum_clean,
+                              data_20_sum_doublenoise)
+errors_data_20_sum_doublenoise <- 
+  FireComputeErrors(fit_data_20_sum_doublenoise,
+                    sample_size = 198,
+                    sample_method = 'full',
+                    summarise_runs = 'summarised',
+                    noise = 'double noise',
+                    datapoints = 'timesteps 20')
+
+errors <- errors %>%
+  add_row(errors_data_20_sum_doublenoise)
+```
+
+endpoints, not summarised
+```{r}
+# endpoints, not summarised, data without noise
+data_end_full_clean <- fire_training %>%
+  filter(datapoints == 'endpoints',
+         summarise_runs == 'full') %>%
+  select(ticks, density, directions, burn_percentage,
+         mean_burn, min_burn, sd_burn, trend_burn) %>%
+  pivot_wider(names_from = ticks,
+              values_from = burn_percentage)
+
+fit_data_end_full_clean <-
+  FireSimpleRegressionFitting(data_end_full_clean,
+                              data_noise = NA)
+errors_data_end_full_clean <- 
+  FireComputeErrors(fit_data_end_full_clean,
+                    sample_size = 198,
+                    sample_method = 'full',
+                    summarise_runs = 'full',
+                    noise = 'clean',
+                    datapoints = 'endpoints')
+
+# dataframe to store all errors
+errors <- errors %>%
+  add_row(errors_data_end_full_clean)
+
+# endpoints, not summarised, data with output noise
+data_end_full_outputnoise <- fire_training %>%
+  filter(datapoints == 'endpoints',
+         summarise_runs == 'full') %>%
+  select(ticks, density, directions, burn_percentage_noise,
+         mean_burn, min_burn, sd_burn, trend_burn) %>%
+  pivot_wider(names_from = ticks,
+              values_from = burn_percentage_noise)
+
+fit_data_end_full_outputnoise <-
+  FireSimpleRegressionFitting(data_end_full_clean,
+                              data_end_full_outputnoise)
+errors_data_end_full_outputnoise <- 
+  FireComputeErrors(fit_data_end_full_outputnoise,
+                    sample_size = 198,
+                    sample_method = 'full',
+                    summarise_runs = 'full',
+                    noise = 'output noise',
+                    datapoints = 'endpoints')
+
+errors <- errors %>%
+  add_row(errors_data_end_full_outputnoise)
+
+# there's no tick noise here, since we only use endpoints
+```
+
+endpoints, summarised
+```{r}
+# endpoints, summarised, data without noise
+data_end_sum_clean <- fire_training %>%
+  filter(datapoints == 'endpoints',
+         summarise_runs == 'summarised') %>%
+  select(ticks, density, directions, burn_percentage,
+         mean_burn, min_burn, sd_burn, trend_burn) %>%
+  pivot_wider(names_from = ticks,
+              values_from = burn_percentage)
+
+fit_data_end_sum_clean <-
+  FireSimpleRegressionFitting(data_end_sum_clean,
+                              data_noise = NA)
+errors_data_end_sum_clean <- 
+  FireComputeErrors(fit_data_end_sum_clean,
+                    sample_size = 198,
+                    sample_method = 'full',
+                    summarise_runs = 'summarised',
+                    noise = 'clean',
+                    datapoints = 'endpoints')
+
+errors <- errors %>%
+  add_row(errors_data_end_sum_clean)
+
+# endpoints, summarised, data with output noise
+data_end_sum_outputnoise <- fire_training %>%
+  filter(datapoints == 'endpoints',
+         summarise_runs == 'summarised') %>%
+  select(ticks, density, directions, burn_percentage_noise,
+         mean_burn, min_burn, sd_burn, trend_burn) %>%
+  pivot_wider(names_from = ticks,
+              values_from = burn_percentage_noise)
+
+fit_data_end_sum_outputnoise <-
+  FireSimpleRegressionFitting(data_end_sum_clean,
+                              data_end_sum_outputnoise)
+errors_data_end_sum_outputnoise <- 
+  FireComputeErrors(fit_data_end_sum_outputnoise,
+                    sample_size = 198,
+                    sample_method = 'full',
+                    summarise_runs = 'summarised',
+                    noise = 'output noise',
+                    datapoints = 'endpoints')
+
+errors <- errors %>%
+  add_row(errors_data_end_sum_outputnoise)
+```
+
+full time series, not summarised
+full time series, summarised
 
 # Plots
 ```{r}
