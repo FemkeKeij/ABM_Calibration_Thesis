@@ -114,17 +114,15 @@ fire_full_noise <- fire_full_noise %>%
 
 # Summarise data into time series
 Make the following summaries
-- End point values only;
-- Output values every 10 time steps, as well as mean, minimum, maximum, standard deviation, and trend of the output;
-- Output values every 20 time steps, as well as mean, minimum, maximum, standard deviation, and trend of the output;
-- Output values every 50 time steps, as well as mean, minimum, maximum, standard deviation, and trend of the output;
-- Not summarised (the full time series is kept);
+- End point values with mean, minimum, maximum, sd, and trend of the output;
+- Endpoint and middle values, total number of ticks, and mean, minimum, maximum, sd, and trend output;
+For the summarised runs and non-summarised runs.
 
 ```{r}
 TimeSeriesSummarising <- function(data, full = FALSE,
                                   timesteps = TRUE,
                                   parameter){
-  if(full & timesteps){
+  if(full){
     data_return <- data %>%
       # per parameter combination & run number
       group_by(combination_number, run) %>%
@@ -133,31 +131,27 @@ TimeSeriesSummarising <- function(data, full = FALSE,
              min_burn = min(get(parameter)),
              max_burn = max(get(parameter)),
              sd_burn = sd(get(parameter)),
-             trend_burn = sens.slope(get(parameter))$estimates) %>%
-      # filter out the time steps of interest
-      filter(ticks_noise %% 10 == 0 | ticks %% 10 == 0)
-  } else if (!full & timesteps){
-    data_return <- data %>%
-      # per parameter combination
-      group_by(combination_number) %>%
-      # compute mean, min, max, sd, and trend
-       mutate(mean_burn = mean(get(parameter)),
-              min_burn = min(get(parameter)),
-              max_burn = max(get(parameter)),
-              sd_burn = sd(get(parameter)),
-              trend_burn = sens.slope(get(parameter))$estimates) %>%
-      # filter out the time steps of interest
-      filter(ticks_noise %% 10 == 0 | ticks %% 10 == 0)
-  } else if (full & !timesteps){
-    data_return <- data %>%
-      # per parameter combination & run
-      group_by(combination_number, run) %>%
-      filter(ticks == max(ticks))
+             trend_burn = sens.slope(get(parameter))$estimates,
+             total_ticks = max(ticks))
   } else {
     data_return <- data %>%
       # per parameter combination
       group_by(combination_number) %>%
-      filter(ticks == max(ticks))
+      # compute mean, min, max, sd, and trend
+      mutate(mean_burn = mean(get(parameter)),
+             min_burn = min(get(parameter)),
+             max_burn = max(get(parameter)),
+             sd_burn = sd(get(parameter)),
+             trend_burn = sens.slope(get(parameter))$estimates,
+             total_ticks = max(ticks))
+  }
+  
+  if(timesteps){
+    data_return <- data_return %>%
+      filter(time_label == 'end' | time_label == 'middle')
+  } else {
+    data_return <- data_return %>%
+      filter(time_label == 'end')
   }
   return(data_return)
 }
@@ -165,14 +159,6 @@ TimeSeriesSummarising <- function(data, full = FALSE,
 
 Save all data:
 ```{r}
-# summarised runs,full time series
-fire_summary_timeseries <- fire_summary_noise %>%
-  mutate(sample_size = 198,
-         sample_method = 'full',
-         summarise_runs = 'summarised',
-         datapoints = 'timeseries') %>%
-  select(- mean_burn_percentage)
-
 # summarised runs, timesteps
 fire_summary_timesteps <- TimeSeriesSummarising(
   fire_summary_noise, full = FALSE, timesteps = TRUE,
@@ -190,13 +176,6 @@ fire_summary_endpoints <- TimeSeriesSummarising(
          sample_method = 'full',
          summarise_runs = 'summarised',
          datapoints = 'endpoints')
-
-# unsummarised runs, full time series
-fire_full_timeseries <- fire_full_clean %>%
-  mutate(sample_size = 198,
-         sample_method = 'fill',
-         summarise_runs = 'full',
-         datapoints = 'timeseries')
 
 # unsummarised runs, noise, timesteps
 fire_full_timesteps <- TimeSeriesSummarising(
@@ -217,10 +196,8 @@ fire_full_endpoints <- TimeSeriesSummarising(
          datapoints = 'endpoints')
 
 # merge into 1 file and save as a complete training data set
-fire_training <- bind_rows(fire_summary_timeseries,
-                           fire_summary_timesteps,
+fire_training <- bind_rows(fire_summary_timesteps,
                            fire_summary_endpoints,
-                           fire_full_timeseries,
                            fire_full_timesteps,
                            fire_full_endpoints) %>%
   select(- mean_burn_percentage)
