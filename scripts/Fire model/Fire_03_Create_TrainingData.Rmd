@@ -177,7 +177,7 @@ fire_summary_endpoints <- TimeSeriesSummarising(
          summarise_runs = 'summarised',
          datapoints = 'endpoints')
 
-# unsummarised runs, noise, timesteps
+# unsummarised runs, timesteps
 fire_full_timesteps <- TimeSeriesSummarising(
   fire_full_noise, full = TRUE, timesteps = TRUE,
   parameter = 'burn_percentage_noise') %>%

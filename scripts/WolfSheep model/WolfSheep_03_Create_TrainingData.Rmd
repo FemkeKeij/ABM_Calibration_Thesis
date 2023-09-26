@@ -135,13 +135,11 @@ Time series are shifted by a maximum of 10 time steps. The amount of noise added
 # for the summarised runs
 ws_summary_noise <- ws_summary_noise %>%
   group_by(combination_number) %>%
-  rowwise %>%
   mutate(ticks_noise = ticks + sample(-10:10, 1))
 
 # for the full data
 ws_full_noise <- ws_full_noise %>%
   group_by(combination_number, run) %>%
-  rowwise %>%
   mutate(ticks_noise = ticks + sample(-10:10, 1))
 ```
 
@@ -155,198 +153,159 @@ Make the following summaries
 
 ```{r}
 TimeSeriesSummarising <- function(data, full = FALSE,
-                                  timesteps = TRUE,
-                                  noise = TRUE){
-  # determine which parameters to use
-  parameter_sheep = ifelse(noise, 'sheep_noise', 'sheep')
-  parameter_wolves = ifelse(noise, 'wolves_noise', 'wolves')
-  parameter_grass = ifelse(noise, 'grass_noise', 'grass')
+                                  timesteps = TRUE){
   
-  if(full & timesteps){
+  if(full){
     data_return <- data %>%
       # per parameter combination & run number
       group_by(combination_number, run) %>%
       # compute mean, min, max, sd, and trend
-      mutate(mean_sheep = mean(get(parameter_sheep)),
-             min_sheep = min(get(parameter_sheep)),
-             max_sheep = max(get(parameter_sheep)),
-             sd_sheep = sd(get(parameter_sheep)),
-             trend_sheep = 
-               sens.slope(get(parameter_sheep))$estimates,
-             mean_wolves = mean(get(parameter_wolves)),
-             min_wolves = min(get(parameter_wolves)),
-             max_wolves = max(get(parameter_wolves)),
-             sd_wolves = max(get(parameter_wolves)),
-             trend_wolves =
-               sens.slope(get(parameter_wolves))$estimates,
-             mean_grass = mean(get(parameter_grass)),
-             min_grass = min(get(parameter_grass)),
-             max_grass = max(get(parameter_grass)),
-             sd_grass = sd(get(parameter_grass)),
-             trend_grass = 
-               sens.slope(get(parameter_grass))$estimates) %>%
-      # filter out the time steps of interest
-      filter(ifelse(noise, ticks_noise %% 10 == 0,
-                    ticks %% 10 == 0))
-  } else if (!full & timesteps){
-    data_return <- data %>%
-      # per parameter combination
-      group_by(combination_number) %>%
-      # compute mean, min, max, sd, and trend
-      mutate(mean_sheep = mean(get(parameter_sheep)),
-             min_sheep = min(get(parameter_sheep)),
-             max_sheep = max(get(parameter_sheep)),
-             sd_sheep = sd(get(parameter_sheep)),
-             trend_sheep = 
-               sens.slope(get(parameter_sheep))$estimates,
-             mean_wolves = mean(get(parameter_wolves)),
-             min_wolves = min(get(parameter_wolves)),
-             max_wolves = max(get(parameter_wolves)),
-             sd_wolves = max(get(parameter_wolves)),
-             trend_wolves =
-               sens.slope(get(parameter_wolves))$estimates,
-             mean_grass = mean(get(parameter_grass)),
-             min_grass = min(get(parameter_grass)),
-             max_grass = max(get(parameter_grass)),
-             sd_grass = sd(get(parameter_grass)),
-             trend_grass = 
-               sens.slope(get(parameter_grass))$estimates) %>%
-      # filter out the time steps of interest
-      filter(ifelse(noise, ticks_noise %% 10 == 0,
-                    ticks %% 10 == 0))
-  } else if (full & !timesteps){
-    data_return <- data %>%
-      # per parameter combination & run
-      group_by(combination_number, run) %>%
-      filter(ticks == max(ticks))
+      mutate(mean_sheep = mean(sheep),
+             mean_sheep_noise = mean(sheep_noise),
+             min_sheep = min(sheep),
+             min_sheep_noise = min(sheep_noise),
+             max_sheep = max(sheep),
+             max_sheep_noise = max(sheep_noise),
+             sd_sheep = sd(sheep),
+             sd_sheep_noise = sd(sheep_noise),
+             trend_sheep = sens.slope(sheep)$estimates,
+             trend_sheep_noise = sens.slope(sheep_noise)$estimates,
+             mean_wolves = mean(wolves),
+             mean_wolves_noise = mean(wolves_noise),
+             min_wolves = min(wolves),
+             min_wolves_noise = min(wolves_noise),
+             max_wolves = max(wolves),
+             max_wolves_noise = max(wolves_noise),
+             sd_wolves = sd(wolves),
+             sd_wolves_noise = sd(wolves_noise),
+             trend_wolves = sens.slope(wolves)$estimates,
+             trend_wolves_noise = sens.slope(wolves_noise)$estimates,
+             mean_grass = mean(grass),
+             mean_grass_noise = mean(grass_noise),
+             min_grass = min(grass),
+             min_grass_noise = min(grass_noise),
+             max_grass = max(grass),
+             max_grass_noise = max(grass_noise),
+             sd_grass = sd(grass),
+             sd_grass_noise = sd(grass_noise),
+             trend_grass = sens.slope(grass)$estimates,
+             tend_grass_noise = sens.slope(grass_noise)$estimates)
   } else {
     data_return <- data %>%
       # per parameter combination
       group_by(combination_number) %>%
-      filter(ticks == max(ticks))
+      # compute mean, min, max, sd, and trend
+      mutate(mean_sheep = mean(sheep),
+             mean_sheep_noise = mean(sheep_noise),
+             min_sheep = min(sheep),
+             min_sheep_noise = min(sheep_noise),
+             max_sheep = max(sheep),
+             max_sheep_noise = max(sheep_noise),
+             sd_sheep = sd(sheep),
+             sd_sheep_noise = sd(sheep_noise),
+             trend_sheep = sens.slope(sheep)$estimates,
+             trend_sheep_noise = sens.slope(sheep_noise)$estimates,
+             mean_wolves = mean(wolves),
+             mean_wolves_noise = mean(wolves_noise),
+             min_wolves = min(wolves),
+             min_wolves_noise = min(wolves_noise),
+             max_wolves = max(wolves),
+             max_wolves_noise = max(wolves_noise),
+             sd_wolves = sd(wolves),
+             sd_wolves_noise = sd(wolves_noise),
+             trend_wolves = sens.slope(wolves)$estimates,
+             trend_wolves_noise = sens.slope(wolves_noise)$estimates,
+             mean_grass = mean(grass),
+             mean_grass_noise = mean(grass_noise),
+             min_grass = min(grass),
+             min_grass_noise = min(grass_noise),
+             max_grass = max(grass),
+             max_grass_noise = max(grass_noise),
+             sd_grass = sd(grass),
+             sd_grass_noise = sd(grass_noise),
+             trend_grass = sens.slope(grass)$estimates,
+             tend_grass_noise = sens.slope(grass_noise)$estimates)
   }
+  
+  if(timesteps){
+    data_return <- data_return %>%
+      filter(ticks %% 10 == 0 | ticks_noise %% 10 == 0)
+  } else {
+    if(full){
+      data_return <- data_return %>%
+        group_by(combination_number, run) %>%
+        filter(ticks == max(ticks))
+    } else {
+      data_return <- data_return %>%
+        group_by(combination_number) %>%
+        filter(ticks == max(ticks))
+    }
+  }
+  
   return(data_return)
 }
 ```
 
 ```{r}
-# summarised runs, no noise, full time series
-ws_summary_clean_timeseries <- ws_summary_clean %>%
-  mutate(sample_size = 40,
-         sample_method = 'trial',
-         summarised_runs = 'summarised',
-         noise = 'clean',
-         datapoints = 'timeseries')
-
-# summarised runs, noise, full time series
-ws_summary_noise_timeseries <- ws_summary_noise %>%
-  mutate(sample_size = 40,
-         sample_method = 'trial',
-         summarised_runs = 'summarised',
-         noise = 'noise',
-         datapoints = 'timeseries')
-
-# summarised runs, no noise, timesteps
-ws_summary_clean_timesteps <- TimeSeriesSummarising(
-  ws_summary_clean, full = FALSE, timesteps = TRUE, noise = FALSE) %>%
-  mutate(sample_size = 40,
-         sample_method = 'trial',
-         summarised_runs = 'summarised',
-         noise = 'clean',
-         datapoints = 'timesteps')
-
-# summarised runs, noise, timesteps
-ws_summary_noise_timesteps <- TimeSeriesSummarising(
-  ws_summary_noise, full = FALSE, timesteps = TRUE, noise = TRUE) %>%
-  mutate(sample_size = 40,
-         sample_method = 'trial',
-         summarised_runs = 'summarised',
-         noise = 'noise',
-         datapoints = 'timesteps')
-
-# summarised runs, no noise, endpoints only
-ws_summary_clean_endpoints <- TimeSeriesSummarising(
-  ws_summary_clean, full = FALSE, timesteps = FALSE, noise = FALSE) %>%
+# summarised runs, full time series
+ws_summary_timeseries <- ws_summary_noise %>%
   mutate(sample_size = 40,
          sample_method = 'trial',
          summarise_runs = 'summarised',
-         noise = 'clean',
-         datapoints = 'endpoints')
+         datapoints = 'timeseries') %>%
+  select(- c(mean_sheep, mean_grass, mean_wolves))
 
-# summarised runs, noise, endpoints only
-ws_summary_noise_endpoints <- TimeSeriesSummarising(
-  ws_summary_noise, full = FALSE, timesteps = FALSE, noise = TRUE) %>%
+# not summarised, full time series
+ws_full_timeseries <- ws_full_noise %>%
+  mutate(sample_size = 40,
+         sample_method = 'trial',
+         summarise_runs = 'full',
+         datapoints = 'timeseries') %>%
+  select(- c(mean_sheep, mean_grass, mean_wolves))
+
+# summarised runs, timesteps
+ws_summary_timesteps <- TimeSeriesSummarising(
+  ws_summary_noise, full = FALSE,
+  timesteps = TRUE) %>%
   mutate(sample_size = 40,
          sample_method = 'trial',
          summarise_runs = 'summarised',
-         noise = 'noise',
-         datapoints = 'endpoints')
-
-# unsummarised runs, no noise, full time series
-ws_full_clean_timeseries <- ws_full_clean %>%
-  mutate(sample_size = 40,
-         sample_method = 'trial',
-         summarise_runs = 'full',
-         noise = 'clean',
-         datapoints = 'timeseries')
-
-# unsummarised runs, noise, full time series
-ws_full_noise_timeseries <- ws_full_clean %>%
-  mutate(sample_size = 40,
-         sample_method = 'trial',
-         summarise_runs = 'full',
-         noise = 'noise',
-         datapoints = 'timeseries')
-
-# unsummarised runs, no noise, timesteps
-ws_full_clean_timesteps <- TimeSeriesSummarising(
-  ws_full_clean, full = TRUE, timesteps = TRUE, noise = FALSE) %>%
-  mutate(sample_size = 40,
-         sample_method = 'trial',
-         summarise_runs = 'full',
-         noise = 'clean',
          datapoints = 'timesteps')
 
-# unsummarised runs, noise, timesteps
-ws_full_noise_timesteps <- TimeSeriesSummarising(
-  ws_full_noise, full = TRUE, timesteps = TRUE, noise = TRUE) %>%
+# not summarised, timesteps
+ws_full_timesteps <- TimeSeriesSummarising(
+  ws_full_noise, full = TRUE,
+  timesteps = TRUE) %>%
   mutate(sample_size = 40,
          sample_method = 'trial',
          summarise_runs = 'full',
-         noise = 'noise',
          datapoints = 'timesteps')
 
-# unsummarised runs, no noise, endpoints only
-ws_full_clean_endpoints <- TimeSeriesSummarising(
-  ws_full_clean, full = TRUE, timesteps = FALSE, noise = FALSE) %>%
+# summarised, endpoints only
+ws_summary_endpoints <- TimeSeriesSummarising(
+  ws_summary_noise, full = FALSE,
+  timesteps = FALSE) %>%
   mutate(sample_size = 40,
          sample_method = 'trial',
-         summarise_runs = 'full',
-         noise = 'clean',
+         summarise_runs = 'summarised',
          datapoints = 'endpoints')
 
-# unsummarised runs, noise, endpoints only
-ws_full_noise_endpoints <- TimeSeriesSummarising(
-  ws_full_noise, full = TRUE, timesteps = FALSE, noise = TRUE) %>%
+# not summarised, endpoints only
+ws_full_endpoints <- TimeSeriesSummarising(
+  ws_full_noise, full = TRUE,
+  timesteps = FALSE) %>%
   mutate(sample_size = 40,
          sample_method = 'trial',
          summarise_runs = 'full',
-         noise = 'clean',
          datapoints = 'endpoints')
 
 # merge into 1 file and save as a complete training data set
-ws_training <- bind_rows(ws_summary_clean_timeseries,
-                         ws_summary_noise_timeseries,
-                         ws_summary_clean_timesteps,
-                         ws_summary_noise_timesteps,
-                         ws_summary_clean_endpoints,
-                         ws_summary_noise_endpoints,
-                         ws_full_clean_timeseries,
-                         ws_full_noise_timeseries,
-                         ws_full_clean_timesteps,
-                         ws_full_noise_timesteps,
-                         ws_full_clean_endpoints,
-                         ws_full_noise_endpoints)
+ws_training <- bind_rows(ws_summary_timeseries,
+                         ws_summary_timesteps,
+                         ws_summary_endpoints,
+                         ws_full_timeseries,
+                         ws_full_timesteps,
+                         ws_full_endpoints)
 
 ws_training %>%
   write_csv(file = 'data/training/wolfsheep_training.csv')
