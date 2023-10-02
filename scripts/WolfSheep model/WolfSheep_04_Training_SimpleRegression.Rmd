@@ -38,9 +38,8 @@ source('scripts/WolfSheep/WolfSheep_Functions.R')
 Read in the data:
 ```{r}
 # training data
-# ws_train <- read_csv('data/processed/wolfsheep_timesteps_training.csv')
-
-ws_train <- read_csv('data/training/wolfsheep_training.csv')
+ws_train <- read_csv('data/training/wolfsheep_training.csv') %>%
+  rename(trend_grass_noise = tend_grass_noise)
 ```
 
 # Fitting with cross-validation
@@ -48,38 +47,53 @@ We fit a separate regression for each input parameter. All output variables serv
 
 Function to cross-validate linear regression
 ```{r}
-WolfSheepSimpleRegressionFitting <- function(data,
-                                      sample_size,
-                                      sample_method,
-                                      summarised_runs,
-                                      noise,
-                                      datapoints){
-  # data: the data frame containing the input parameters as well as the relevant outputs
-  # sample_size, sample_method, summarised_runs, noise, datapoints: as in training data frame
+WolfSheepSimpleRegressionFitting <- function(data_clean,
+                                             data_outputnoise,
+                                             data_doublenoise){
+  # data_clean: the data frame containing the input parameters as well as the relevant outputs
+  # data_outputnoise: the data frame containing the input parameters as well as the relevant outputs, with output noise
+  # data_doublenoise: the data frame containing the input parameters as well as the relevant outputs, with output and temporal noise
   
   # create the folds
-  flds <- createFolds(1:nrow(data),
+  flds <- createFolds(1:nrow(data_clean),
                       k = 5, list = TRUE, returnTrain = FALSE)
 
   # to store the results
   results_df <- tibble(fold = numeric(),
-                       variable = character(),
-                       perc_correct = numeric(),
-                       perc_correct_cat = numeric(),
-                       RMSE = numeric(),
-                       NRMSE = numeric(),
-                       point_pred = numeric())
-
+                       noise = character(),
+                       initial_number_sheep = numeric(),
+                       initial_number_sheep_pred = numeric(),
+                       initial_number_wolves = numeric(),
+                       initial_number_wolves_pred = numeric(),
+                       sheep_gain_from_food = numeric(),
+                       sheep_gain_from_food_pred = numeric(),
+                       wolves_gain_from_food = numeric(),
+                       wolves_gain_from_food_pred = numeric(),
+                       sheep_reproduce = numeric(),
+                       sheep_reproduce_pred = numeric(),
+                       wolves_reproduce = numeric(),
+                       wolves_reproduce_pred = numeric(),
+                       grass_regrowth = numeric(),
+                       grass_regrowth_pred = numeric())
+  
   # for each cross-validation fold
   for(i in 1:5){
     # remove the test fold to create the training data
-    dat_train <- data %>%
+    dat_train <- data_clean %>%
       filter(!row_number() %in% unlist(flds[i]))
   
-    # obtain the test fold
-    dat_test <- data %>%
-      filter(row_number %in% unlist(flds[i]))
-  
+    # obtain the test fold without noise
+    dat_test <- data_clean %>%
+      filter(row_number() %in% unlist(flds[i]))
+    # obtain the test fold with output noise
+    dat_test_outputnoise <- data_outputnoise %>%
+      filter(row_number() %in% unlist(flds[i]))
+    # obtain the test fold with output and temporal noise
+    if(!any(is.na(data_doublenoise))){
+    dat_test_doublenoise <- data_doublenoise %>%
+      filter(row_number() %in% unlist(flds[i]))
+    }
+    
     # train the linear regressions
     initial_sheep_lr <- lm(formula = initial_number_sheep ~ . 
                            - initial_number_wolves 
@@ -138,150 +152,1196 @@ WolfSheepSimpleRegressionFitting <- function(data,
                            - wolves_reproduce,
                            data = dat_train)
    
-    # predict the left-out fold
-    pred_initial_sheep <- predict(initial_sheep_lr, data = dat_test)
-    pred_initial_wolves <- predict(initial_wolves_lr, data = dat_test)
-    pred_food_sheep <- predict(food_sheep_lr, data = dat_test)
-    pred_food_wolves <- predict(food_wolves_lr, data = dat_test)
-    pred_rep_sheep <- predict(rep_sheep_lr, data = dat_test)
-    pred_rep_wolves <- predict(rep_sheep_lr, data = dat_test)
-    pred_grass <- predict(grass_lr, data = dat_test)
-    
-    # compute mean input parameters in training data for
-    # point prediction computation
-    mean_initial_sheep <- mean(dat_train$initial_number_sheep)
-    mean_initial_wolves <- mean(dat_train$initial_number_wolves)
-    mean_food_sheep <- mean(dat_train$sheep_gain_from_food)
-    mean_food_wolves <- mean(dat_train$wolves_gain_from_food)
-    mean_rep_sheep <- mean(dat_train$sheep_reproduce)
-    mean_rep_wolves <- mean(dat_train$wolves_reproduce)
-    mean_grass <- mean(dat_train$grass_regrowth)
-  
-    # add error computations
+    # create predictions data frame
+    # without noise
     results_df <- results_df %>%
-      add_row(ComputeErrorsContinuous(pred_initial_sheep,
-                                      dat_test$initial_number_sheep,
-                                      mean_initial_sheep,
-                                      variable = 'initial number of sheep',
-                                      fold = i)) %>%
-      add_row(ComputeErrorsContinuous(pred_initial_wolves,
-                                      dat_test$initial_number_wolves,
-                                      mean_initial_sheep,
-                                      variable = 'initial number of wolves',
-                                      fold = i)) %>%
-      add_row(ComputeErrorsContinuous(pred_food_sheep,
-                                      dat_test$sheep_gain_from_food,
-                                      mean_food_sheep,
-                                      variable = 'sheep gain from food',
-                                      fold = i)) %>%
-      add_row(ComputeErrorsContinuous(pred_food_wolves,
-                                      dat_test$wolves_gain_from_food,
-                                      mean_food_wolves,
-                                      variable = 'wolves gain from food',
-                                      fold = i)) %>%
-      add_row(ComputeErrorsContinuous(pred_rep_sheep,
-                                      dat_test$sheep_reproduce,
-                                      mean_rep_sheep,
-                                      variable = 'probability sheep reproduce',
-                                      fold = i)) %>%
-      add_row(ComputeErrorsContinuous(pred_rep_wolves,
-                                      dat_test$wolves_reproduce,
-                                      mean_rep_wolves,
-                                      variable = 'probability wolves reproduce',
-                                      fold = i)) %>%
-      add_row(ComputeErrorsContinuous(pred_grass,
-                                      dat_test$grass_regrowth,
-                                      mean_grass,
-                                      variable = 'grass regrowth time',
-                                      fold = i))
+      add_row(fold = i,
+              noise = 'clean',
+              initial_number_sheep = dat_test$initial_number_sheep,
+              initial_number_sheep_pred = 
+                predict(initial_sheep_lr, newdata = dat_test),
+              initial_number_wolves = dat_test$initial_number_wolves,
+              initial_number_wolves_pred = 
+                predict(initial_wolves_lr, newdata = dat_test),
+              sheep_gain_from_food = dat_test$sheep_gain_from_food,
+              sheep_gain_from_food_pred = 
+                predict(food_sheep_lr, newdata = dat_test),
+              wolves_gain_from_food = dat_test$wolves_gain_from_food,
+              wolves_gain_from_food_pred = 
+                predict(food_wolves_lr, newdata = dat_test),
+              sheep_reproduce = dat_test$sheep_reproduce,
+              sheep_reproduce_pred = 
+                predict(rep_sheep_lr, newdata = dat_test),
+              wolves_reproduce = dat_test$wolves_reproduce,
+              wolves_reproduce_pred = 
+                predict(rep_wolves_lr, newdata = dat_test),
+              grass_regrowth = dat_test$grass_regrowth,
+              grass_regrowth_pred = 
+                predict(grass_lr, newdata = dat_test))
+    # with output noise
+    results_df <- results_df %>%
+      add_row(fold = i,
+              noise = 'output noise',
+              initial_number_sheep = dat_test$initial_number_sheep,
+              initial_number_sheep_pred = 
+                predict(initial_sheep_lr,
+                        newdata = dat_test_outputnoise),
+              initial_number_wolves = dat_test$initial_number_wolves,
+              initial_number_wolves_pred = 
+                predict(initial_wolves_lr,
+                        newdata = dat_test_outputnoise),
+              sheep_gain_from_food = dat_test$sheep_gain_from_food,
+              sheep_gain_from_food_pred = 
+                predict(food_sheep_lr, newdata = dat_test_outputnoise),
+              wolves_gain_from_food = dat_test$wolves_gain_from_food,
+              wolves_gain_from_food_pred = 
+                predict(food_wolves_lr,
+                        newdata = dat_test_outputnoise),
+              sheep_reproduce = dat_test$sheep_reproduce,
+              sheep_reproduce_pred = 
+                predict(rep_sheep_lr, newdata = dat_test_outputnoise),
+              wolves_reproduce = dat_test$wolves_reproduce,
+              wolves_reproduce_pred = 
+                predict(rep_wolves_lr, newdata = dat_test_outputnoise),
+              grass_regrowth = dat_test$grass_regrowth,
+              grass_regrowth_pred = 
+                predict(grass_lr, newdata = dat_test_outputnoise))
+    
+    # predict the left-out fold with output and temporal noise
+    if(!any(is.na(data_doublenoise))){
+      results_df <- results_df %>%
+        add_row(fold = i,
+              noise = 'double noise',
+              initial_number_sheep = dat_test$initial_number_sheep,
+              initial_number_sheep_pred = 
+                predict(initial_sheep_lr,
+                        newdata = dat_test_doublenoise),
+              initial_number_wolves = dat_test$initial_number_wolves,
+              initial_number_wolves_pred = 
+                predict(initial_wolves_lr,
+                        newdata = dat_test_doublenoise),
+              sheep_gain_from_food = dat_test$sheep_gain_from_food,
+              sheep_gain_from_food_pred = 
+                predict(food_sheep_lr, newdata = dat_test_doublenoise),
+              wolves_gain_from_food = dat_test$wolves_gain_from_food,
+              wolves_gain_from_food_pred = 
+                predict(food_wolves_lr,
+                        newdata = dat_test_doublenoise),
+              sheep_reproduce = dat_test$sheep_reproduce,
+              sheep_reproduce_pred = 
+                predict(rep_sheep_lr, newdata = dat_test_doublenoise),
+              wolves_reproduce = dat_test$wolves_reproduce,
+              wolves_reproduce_pred = 
+                predict(rep_wolves_lr, newdata = dat_test_doublenoise),
+              grass_regrowth = dat_test$grass_regrowth,
+              grass_regrowth_pred = 
+                predict(grass_lr, newdata = dat_test_doublenoise))
+    }
+  }
+  return(results_df)
+}
+```
+
+Function to extend time series:
+```{r}
+FillOutData <- function(data){
+  # find columns with sheep data
+  sheep_cols <- which(startsWith(colnames(data), 'sheep_'))[-c(1,2)]
+  wolves_cols <- which(startsWith(colnames(data), 'wolves_'))[-c(1,2)]
+  grass_cols <- which(startsWith(colnames(data), 'grass_'))[-1]
+  
+  # for each of the columns with sheep data
+  for(i in sheep_cols){
+    # run through all rows
+    for(j in 1:nrow(data)){
+      # if a data point is NA, replace it with other data
+      if(is.na(data[j, i])){
+        # if it's the first data column,
+        # take data from the second column
+        if(i == min(sheep_cols)){
+          data[j, i] <- data[j, i + 1]
+          if(is.na(data[j, i])){
+            data[j, i] <- data[j, i + 2]
+          }
+        } else {
+          # otherwise take data from the previous column
+          data[j, i] <- data[j, i - 1]
+        }
+      }
+    }
   }
   
-  # compute mean of each statistic over the 5 folds
-  results_df <- results_df %>%
-    group_by(variable)%>%
+  # same for wolves data
+  for(i in wolves_cols){
+    for(j in 1:nrow(data)){
+      if(is.na(data[j, i])){
+        if(i == min(wolves_cols)){
+          data[j, i] <- data[j, i + 1]
+          if(is.na(data[j, i])){
+            data[j, i] <- data[j, i + 2]
+          }
+        } else {
+          data[j, i] <- data[j, i - 1]
+        }
+      }
+    }
+  }
+  
+  # same for grass data
+  for(i in grass_cols){
+    for(j in 1:nrow(data)){
+      if(is.na(data[j, i])){
+        if(i == min(grass_cols)){
+          data[j, i] <- data[j, i + 1]
+          if(is.na(data[j, i])){
+            data[j, i] <- data[j, i + 2]
+          }
+        } else {
+          data[j, i] <- data[j, i - 1]
+        }
+      }
+    }
+  }
+  
+  # return corrected data frame
+  return(data)
+}
+```
+
+Error computations:
+```{r}
+WSComputeErrors <- function(predictions,
+                            sample_size, sample_method,
+                            summarise_runs, datapoints,
+                            double_noise = TRUE){
+  # predictions: dataframe with results from fitting
+  # sample_size, sample_method, summarise_runs, datapoints: info to
+  #     pass on to output data frame
+  # double_noise: indicates whether the dataframe includes temporal
+  #     noise as well as output noise
+  
+  # to store the results:
+  errors <- tibble(perc_correct_params = numeric(),
+                   perc_initial_sheep_correct = numeric(),
+                   perc_initial_wolves_correct = numeric(),
+                   perc_food_sheep_correct = numeric(),
+                   perc_food_wolves_correct = numeric(),
+                   perc_sheep_rep_correct = numeric(),
+                   perc_wolves_rep_correct = numeric(),
+                   perc_grass_correct = numeric(),
+                   RMSE_initial_sheep = numeric(),
+                   RMSE_initial_wolves = numeric(),
+                   RMSE_food_sheep = numeric(),
+                   RMSE_food_wolves = numeric(),
+                   RMSE_sheep_rep = numeric(),
+                   RMSE_wolves_rep = numeric(),
+                   RMSE_grass = numeric(),
+                   NRMSE_initial_sheep = numeric(),
+                   NRMSE_initial_wolves = numeric(),
+                   NRMSE_food_sheep = numeric(),
+                   NRMSE_food_wolves = numeric(),
+                   NRMSE_sheep_rep = numeric(),
+                   NRMSE_wolves_rep = numeric(),
+                   NRMSE_grass = numeric(),
+                   ppp_initial_sheep = numeric(),
+                   ppp_initial_wolves = numeric(),
+                   ppp_food_sheep = numeric(),
+                   ppp_food_wolves = numeric(),
+                   ppp_sheep_rep = numeric(),
+                   ppp_wolves_rep = numeric(),
+                   ppp_grass = numeric(),
+                   fold = numeric(),
+                   noise = character())
+  
+  # for each noise level
+  if(double_noise){
+    noise_levels <- c('clean', 'output noise', 'double noise')
+  } else {
+    noise_levels <- c('clean', 'output noise')
+  }
+  
+  for(i in noise_levels){
+    data_noise <- predictions %>%
+      filter(noise == i)
+    for(j in 1:5){
+      # compute mean values in training data
+      mean_vals <- data_noise %>%
+        filter(fold != j) %>%
+        summarise(mean_initial_number_sheep =
+                    mean(initial_number_sheep),
+                  mean_initial_number_wolves = 
+                    mean(initial_number_wolves),
+                  mean_sheep_gain_from_food = 
+                    mean(sheep_gain_from_food),
+                  mean_wolves_gain_from_food = 
+                    mean(wolves_gain_from_food),
+                  mean_sheep_reproduce = mean(sheep_reproduce),
+                  mean_wolves_reproduce = mean(wolves_reproduce),
+                  mean_grass_regrowth = mean(grass_regrowth))
+      
+      data <- data_noise %>%
+        filter(fold == j)
+      
+      new_errors <- data %>%
+        summarise(perc_correct_params =
+                      sum(initial_number_sheep_pred ==
+                            initial_number_sheep &
+                            initial_number_wolves_pred ==
+                            initial_number_wolves & 
+                            sheep_gain_from_food_pred ==
+                            sheep_gain_from_food &
+                            wolves_gain_from_food_pred ==
+                            wolves_gain_from_food &
+                            sheep_reproduce_pred ==
+                            sheep_reproduce &
+                            wolves_reproduce_pred == 
+                            wolves_reproduce & 
+                            grass_regrowth_pred ==
+                            grass_regrowth) / nrow(data) * 100,
+                   perc_initial_sheep_correct =
+                     sum(initial_number_sheep ==
+                           initial_number_sheep_pred) /
+                     nrow(data) * 100,
+                   perc_initial_wolves_correct =
+                     sum(initial_number_wolves ==
+                           initial_number_wolves_pred) /
+                     nrow(data) * 100,
+                   perc_food_sheep_correct =
+                     sum(sheep_gain_from_food ==
+                           sheep_gain_from_food_pred) /
+                     nrow(data) * 100,
+                   perc_food_wolves_correct =
+                     sum(wolves_gain_from_food ==
+                           wolves_gain_from_food_pred) /
+                     nrow(data) * 100,
+                   perc_sheep_rep_correct =
+                     sum(sheep_reproduce == sheep_reproduce_pred) /
+                     nrow(data) * 100,
+                   perc_wolves_rep_correct =
+                     sum(wolves_reproduce == wolves_reproduce_pred) /
+                     nrow(data) * 100,
+                   perc_grass_correct =
+                     sum(grass_regrowth == grass_regrowth_pred) /
+                     nrow(data) * 100,
+                   RMSE_initial_sheep =
+                     sqrt(sum((initial_number_sheep_pred -
+                                 initial_number_sheep)^2)) /
+                     nrow(data),
+                   RMSE_initial_wolves =
+                     sqrt(sum((initial_number_wolves_pred -
+                                 initial_number_wolves)^2)) /
+                     nrow(data),
+                   RMSE_food_sheep =
+                     sqrt(sum((sheep_gain_from_food_pred -
+                                 sheep_gain_from_food)^2)) /
+                     nrow(data),
+                   RMSE_food_wolves =
+                     sqrt(sum((wolves_gain_from_food_pred -
+                                 wolves_gain_from_food)^2)) /
+                     nrow(data),
+                   RMSE_sheep_rep =
+                     sqrt(sum((sheep_reproduce_pred -
+                                 sheep_reproduce)^2)) / nrow(data),
+                   RMSE_wolves_rep =
+                     sqrt(sum((wolves_reproduce_pred -
+                                 wolves_reproduce)^2)) / nrow(data),
+                   RMSE_grass =
+                     sqrt(sum((grass_regrowth_pred -
+                                 grass_regrowth)^2)) / nrow(data),
+                   NRMSE_initial_sheep =
+                     (sqrt(sum((initial_number_sheep_pred -
+                                  initial_number_sheep)^2)) /
+                        nrow(data)) / sd(initial_number_sheep),
+                   NRMSE_initial_wolves =
+                     (sqrt(sum((initial_number_wolves_pred -
+                                  initial_number_wolves)^2)) /
+                        nrow(data)) / sd(initial_number_wolves),
+                   NRMSE_food_sheep =
+                     (sqrt(sum((sheep_gain_from_food_pred -
+                                  sheep_gain_from_food)^2)) /
+                        nrow(data)) / sd(sheep_gain_from_food),
+                   NRMSE_food_wolves =
+                     (sqrt(sum((wolves_gain_from_food_pred -
+                                  wolves_gain_from_food)^2)) /
+                        nrow(data)) / sd(wolves_gain_from_food),
+                   NRMSE_sheep_rep =
+                     (sqrt(sum((sheep_reproduce_pred -
+                                  sheep_reproduce)^2)) / nrow(data)) /
+                     sd(sheep_reproduce),
+                   NRMSE_wolves_rep =
+                     (sqrt(sum((wolves_reproduce_pred -
+                                  wolves_reproduce)^2)) /
+                        nrow(data)) / sd(wolves_reproduce),
+                   NRMSE_grass =
+                     (sqrt(sum((grass_regrowth_pred -
+                                  grass_regrowth)^2)) /
+                        nrow(data)) / sd(grass_regrowth),
+                   ppp_initial_sheep =
+                     1 - sum(sqrt((initial_number_sheep_pred -
+                                     initial_number_sheep)^2)) /
+                     sum(sqrt((initial_number_sheep  - 
+                            mean_vals$mean_initial_number_sheep)^2)),
+                   ppp_initial_wolves =
+                     1 - sum(sqrt((initial_number_wolves_pred -
+                                     initial_number_wolves)^2)) /
+                      sum(sqrt((initial_number_wolves -
+                          mean_vals$mean_initial_number_wolves)^2)),
+                   ppp_food_sheep =
+                     1 - sum(sqrt((sheep_gain_from_food_pred -
+                                     sheep_gain_from_food)^2)) /
+                     sum(sqrt((sheep_gain_from_food -
+                             mean_vals$mean_sheep_gain_from_food)^2)),
+                   ppp_food_wolves =
+                     1 - sum(sqrt((wolves_gain_from_food_pred -
+                                     wolves_gain_from_food)^2)) /
+                     sum(sqrt((wolves_gain_from_food -
+                            mean_vals$mean_wolves_gain_from_food)^2)),
+                   ppp_sheep_rep =
+                     1 - sum(sqrt((sheep_reproduce_pred -
+                                     sheep_reproduce)^2)) /
+                        sum(sqrt((sheep_reproduce -
+                                  mean_vals$mean_sheep_reproduce)^2)),
+                   ppp_wolves_rep =
+                     1 - sum(sqrt((wolves_reproduce_pred -
+                                     wolves_reproduce)^2)) /
+                     sum(sqrt((wolves_reproduce -
+                                 mean_vals$mean_wolves_reproduce)^2)),
+                   ppp_grass =
+                     1 - sum(sqrt((grass_regrowth_pred -
+                                     grass_regrowth)^2)) /
+                     sum(sqrt((grass_regrowth -
+                                 mean_vals$mean_grass_regrowth)^2)),
+                   fold = j,
+                   noise = i)
+          
+          errors <- errors %>%
+            add_row(new_errors)
+        }
+  }
+  # compute mean over folds (per noise type)
+  errors <- errors %>%
+    group_by(noise) %>%
     summarise_all(mean) %>%
     select(- fold) %>%
     # add the experiment info to the df
     add_column(sample_size = sample_size,
                sample_method = sample_method,
-               summarised_runs = summarised_runs,
-               noise = noise,
+               summarise_runs = summarise_runs,
                datapoints = datapoints)
-  
-  return(results_df)
+    
+  return(errors)  
 }
 ```
 
-To perform:
-1) select relevant sample size, sampling method, summarisation of runs, noise, and type of datapoints
-2) select relevant data columns, include ticks, outputs, and input parameters
-3) pivot wider to make each time step a column
-4) feed to fitting function
-
+Endpoints only:
 ```{r}
-out_1 <- WolfSheepSimpleRegression(ws_train %>%
-                                     filter(sample_size == 40,
-                                            sample_method == 'trial',
-                                            summarised_runs ==
-                                              'summarised',
-                                            noise == 'clean',
-                                            datapoints = 'timesteps'),
-                                   sample_size = 40,
-                                   sample_method = 'trial',
-                                   summarised_runs = 'summarised',
-                                   noise = 'clean',
-                                   datapoints = 'timesteps')
-
-ws_trial <- ws_train %>% 
-  filter(sample_size == 40,
-         sample_method == 'trial',
-         # add in summarisation here
-         noise == 'noise',
-         datapoints == 'timesteps',
-         # select every 10 timesteps
-         ticks %% 10 == 0) %>%
-  select(ticks, sheep, wolves, grass,
+# not summarised
+# obtain data frame without noise
+data_end_full_clean <- ws_train %>%
+  filter(datapoints == 'endpoints',
+         summarise_runs == 'full') %>%
+  select(wolves, sheep, grass,
          initial_number_sheep, initial_number_wolves,
          sheep_gain_from_food, wolves_gain_from_food,
-         sheep_reproduce, wolves_reproduce, grass_regrowth,
-         mean_sheep, mean_wolves, mean_grass, 
-         min_sheep, max_sheep, sd_sheep, trend_sheep,
-         min_wolves, max_wolves, sd_wolves, trend_wolves,
-         min_grass, max_grass, sd_grass, trend_grass) %>%
-  # transform into wide format for regression
-  pivot_wider(names_from = ticks,
-              values_from = c(sheep, wolves, grass))
+         sheep_reproduce, wolves_reproduce, grass_regrowth)
+
+# obtain data frame with output noise
+data_end_full_outputnoise <- ws_train %>%
+  filter(datapoints == 'endpoints',
+         summarise_runs == 'full') %>%
+  select(wolves_noise, sheep_noise, grass_noise,
+         initial_number_sheep, initial_number_wolves,
+         sheep_gain_from_food, wolves_gain_from_food,
+         sheep_reproduce, wolves_reproduce, grass_regrowth) %>%
+  rename(wolves = wolves_noise,
+         sheep = sheep_noise,
+         grass = grass_noise)
+
+# no temporal noise here because it's endpoints only
+# no need to fill out data frame because it's endpoints only
+
+# fit regression
+fit_end_full <- WolfSheepSimpleRegressionFitting(
+  data_clean = data_end_full_clean,
+  data_outputnoise = data_end_full_outputnoise,
+  data_doublenoise = NA)
+
+# compute errors
+errors_df <- WSComputeErrors(predictions = fit_end_full,
+                             sample_size = 40,
+                             sample_method = 'trial',
+                             summarise_runs = 'full',
+                             datapoints = 'endpoints',
+                             double_noise = FALSE)
+
+# summarised
+data_end_sum_clean <- ws_train %>%
+  filter(datapoints == 'endpoints',
+         summarise_runs == 'summarised') %>%
+  select(wolves, sheep, grass,
+         initial_number_sheep, initial_number_wolves,
+         sheep_gain_from_food, wolves_gain_from_food,
+         sheep_reproduce, wolves_reproduce, grass_regrowth)
+
+data_end_sum_outputnoise <- ws_train %>%
+  filter(datapoints == 'endpoints',
+         summarise_runs == 'summarised') %>%
+  select(wolves_noise, sheep_noise, grass_noise,
+         initial_number_sheep, initial_number_wolves,
+         sheep_gain_from_food, wolves_gain_from_food,
+         sheep_reproduce, wolves_reproduce, grass_regrowth) %>%
+  rename(wolves = wolves_noise,
+         sheep = sheep_noise,
+         grass = grass_noise)
+
+fit_end_sum <- WolfSheepSimpleRegressionFitting(
+  data_clean = data_end_sum_clean,
+  data_outputnoise = data_end_sum_outputnoise,
+  data_doublenoise = NA)
+
+errors_df <- errors_df %>%
+  add_row(WSComputeErrors(predictions = fit_end_sum,
+                             sample_size = 40,
+                             sample_method = 'trial',
+                             summarise_runs = 'summarised',
+                             datapoints = 'endpoints',
+                            double_noise = FALSE))
 ```
 
+Timesteps every 10 ticks
+```{r}
+# not summarised
+data_10_full_clean <- ws_train %>%
+  filter(datapoints == 'timesteps',
+         summarise_runs == 'full',
+         ticks %% 10 == 0) %>%
+  select(ticks, wolves, sheep, grass,
+         mean_wolves, mean_sheep, mean_grass,
+         min_wolves, min_sheep, min_grass,
+         max_wolves, max_sheep, max_grass,
+         sd_wolves, sd_sheep, sd_grass,
+         trend_wolves, trend_sheep, trend_grass,
+         initial_number_sheep, initial_number_wolves,
+         sheep_gain_from_food, wolves_gain_from_food,
+         sheep_reproduce, wolves_reproduce, grass_regrowth) %>%
+  pivot_wider(names_from = ticks,
+              values_from = c(wolves, sheep, grass))
 
+data_10_full_outputnoise <- ws_train %>%
+  filter(datapoints == 'timesteps',
+         summarise_runs == 'full',
+         ticks %% 10 == 0) %>%
+  select(ticks, wolves_noise, sheep_noise, grass_noise,
+         mean_wolves_noise, mean_sheep_noise, mean_grass_noise,
+         min_wolves_noise, min_sheep_noise, min_grass_noise,
+         max_wolves_noise, max_sheep_noise, max_grass_noise,
+         sd_wolves_noise, sd_sheep_noise, sd_grass_noise,
+         trend_wolves_noise, trend_sheep_noise, trend_grass_noise,
+         initial_number_sheep, initial_number_wolves,
+         sheep_gain_from_food, wolves_gain_from_food,
+         sheep_reproduce, wolves_reproduce, grass_regrowth) %>%
+  rename(wolves = wolves_noise,
+         min_wolves = min_wolves_noise, max_wolves = max_wolves_noise,
+         sd_wolves = sd_wolves_noise, mean_wolves = mean_wolves_noise,
+         trend_wolves = trend_wolves_noise,
+         sheep = sheep_noise,
+         min_sheep = min_sheep_noise, max_sheep = max_sheep_noise,
+         sd_sheep = sd_sheep_noise, mean_sheep = mean_sheep_noise,
+         trend_sheep = trend_sheep_noise,
+         grass = grass_noise,
+         min_grass = min_grass_noise, max_grass = max_grass_noise,
+         sd_grass = sd_grass_noise, mean_grass = mean_grass_noise,
+         trend_grass = trend_grass_noise) %>%
+   pivot_wider(names_from = ticks,
+              values_from = c(wolves, sheep, grass))
 
-1) no noise, 10 steps, random sampling
+data_10_full_doublenoise <- ws_train %>%
+  filter(datapoints == 'timesteps',
+         summarise_runs == 'full',
+         ticks_noise %% 10 == 0) %>%
+  select(ticks_noise, wolves_noise, sheep_noise, grass_noise,
+         mean_wolves_noise, mean_sheep_noise, mean_grass_noise,
+         min_wolves_noise, min_sheep_noise, min_grass_noise,
+         max_wolves_noise, max_sheep_noise, max_grass_noise,
+         sd_wolves_noise, sd_sheep_noise, sd_grass_noise,
+         trend_wolves_noise, trend_sheep_noise, trend_grass_noise,
+         initial_number_sheep, initial_number_wolves,
+         sheep_gain_from_food, wolves_gain_from_food,
+         sheep_reproduce, wolves_reproduce, grass_regrowth) %>%
+  rename(wolves = wolves_noise,
+         min_wolves = min_wolves_noise, max_wolves = max_wolves_noise,
+         sd_wolves = sd_wolves_noise, mean_wolves = mean_wolves_noise,
+         trend_wolves = trend_wolves_noise,
+         sheep = sheep_noise,
+         min_sheep = min_sheep_noise, max_sheep = max_sheep_noise,
+         sd_sheep = sd_sheep_noise, mean_sheep = mean_sheep_noise,
+         trend_sheep = trend_sheep_noise,
+         grass = grass_noise,
+         min_grass = min_grass_noise, max_grass = max_grass_noise,
+         sd_grass = sd_grass_noise, mean_grass = mean_grass_noise,
+         trend_grass = trend_grass_noise) %>%
+   pivot_wider(names_from = ticks_noise,
+              values_from = c(wolves, sheep, grass))
 
-2) no noise, 20 steps, random sampling
+# complete incomplete cases before fitting
+data_10_full_clean <- FillOutData(data_10_full_clean)
+data_10_full_doublenoise <- FillOutData(data_10_full_doublenoise)
+data_10_full_outputnoise <- FillOutData(data_10_full_outputnoise)
 
-3) no noise, 50 steps, random sampling
+fit_10_full <- WolfSheepSimpleRegressionFitting(
+  data_clean = data_10_full_clean,
+  data_outputnoise = data_10_full_outputnoise,
+  data_doublenoise = data_10_full_doublenoise)
 
-4) no noise, endpoint, random sampling
+errors_df <- errors_df %>%
+  add_row(WSComputeErrors(predictions = fit_10_full,
+                             sample_size = 40,
+                             sample_method = 'trial',
+                             summarise_runs = 'full',
+                             datapoints = 'timesteps 10'))
 
-4) no noise, 10 steps, lhs
+# summarised
+data_10_sum_clean <- ws_train %>%
+  filter(datapoints == 'timesteps',
+         summarise_runs == 'summarised',
+         ticks %% 10 == 0) %>%
+  select(ticks, wolves, sheep, grass,
+         mean_wolves, mean_sheep, mean_grass,
+         min_wolves, min_sheep, min_grass,
+         max_wolves, max_sheep, max_grass,
+         sd_wolves, sd_sheep, sd_grass,
+         trend_wolves, trend_sheep, trend_grass,
+         initial_number_sheep, initial_number_wolves,
+         sheep_gain_from_food, wolves_gain_from_food,
+         sheep_reproduce, wolves_reproduce, grass_regrowth) %>%
+  pivot_wider(names_from = ticks,
+              values_from = c(wolves, sheep, grass))
 
-5) no noise, 20 steps, lhs
+data_10_sum_outputnoise <- ws_train %>%
+  filter(datapoints == 'timesteps',
+         summarise_runs == 'summarised',
+         ticks %% 10 == 0) %>%
+  select(ticks, wolves_noise, sheep_noise, grass_noise,
+         mean_wolves_noise, mean_sheep_noise, mean_grass_noise,
+         min_wolves_noise, min_sheep_noise, min_grass_noise,
+         max_wolves_noise, max_sheep_noise, max_grass_noise,
+         sd_wolves_noise, sd_sheep_noise, sd_grass_noise,
+         trend_wolves_noise, trend_sheep_noise, trend_grass_noise,
+         initial_number_sheep, initial_number_wolves,
+         sheep_gain_from_food, wolves_gain_from_food,
+         sheep_reproduce, wolves_reproduce, grass_regrowth) %>%
+  rename(wolves = wolves_noise,
+         min_wolves = min_wolves_noise, max_wolves = max_wolves_noise,
+         sd_wolves = sd_wolves_noise, mean_wolves = mean_wolves_noise,
+         trend_wolves = trend_wolves_noise,
+         sheep = sheep_noise,
+         min_sheep = min_sheep_noise, max_sheep = max_sheep_noise,
+         sd_sheep = sd_sheep_noise, mean_sheep = mean_sheep_noise,
+         trend_sheep = trend_sheep_noise,
+         grass = grass_noise,
+         min_grass = min_grass_noise, max_grass = max_grass_noise,
+         sd_grass = sd_grass_noise, mean_grass = mean_grass_noise,
+         trend_grass = trend_grass_noise) %>%
+   pivot_wider(names_from = ticks,
+              values_from = c(wolves, sheep, grass))
 
-6) no noise, 50 steps, lhs
+data_10_sum_doublenoise <- ws_train %>%
+  filter(datapoints == 'timesteps',
+         summarise_runs == 'summarised',
+         ticks_noise %% 10 == 0) %>%
+  select(ticks_noise, wolves_noise, sheep_noise, grass_noise,
+         mean_wolves_noise, mean_sheep_noise, mean_grass_noise,
+         min_wolves_noise, min_sheep_noise, min_grass_noise,
+         max_wolves_noise, max_sheep_noise, max_grass_noise,
+         sd_wolves_noise, sd_sheep_noise, sd_grass_noise,
+         trend_wolves_noise, trend_sheep_noise, trend_grass_noise,
+         initial_number_sheep, initial_number_wolves,
+         sheep_gain_from_food, wolves_gain_from_food,
+         sheep_reproduce, wolves_reproduce, grass_regrowth) %>%
+  rename(wolves = wolves_noise,
+         min_wolves = min_wolves_noise, max_wolves = max_wolves_noise,
+         sd_wolves = sd_wolves_noise, mean_wolves = mean_wolves_noise,
+         trend_wolves = trend_wolves_noise,
+         sheep = sheep_noise,
+         min_sheep = min_sheep_noise, max_sheep = max_sheep_noise,
+         sd_sheep = sd_sheep_noise, mean_sheep = mean_sheep_noise,
+         trend_sheep = trend_sheep_noise,
+         grass = grass_noise,
+         min_grass = min_grass_noise, max_grass = max_grass_noise,
+         sd_grass = sd_grass_noise, mean_grass = mean_grass_noise,
+         trend_grass = trend_grass_noise) %>%
+   pivot_wider(names_from = ticks_noise,
+              values_from = c(wolves, sheep, grass))
 
-7) no noise, endpoints, lhs
+data_10_sum_clean <- FillOutData(data_10_sum_clean)
+data_10_sum_doublenoise <- FillOutData(data_10_sum_doublenoise)
+data_10_sum_outputnoise <- FillOutData(data_10_sum_outputnoise)
 
-1) no noise, 10 steps, random sampling
+fit_10_sum <- WolfSheepSimpleRegressionFitting(
+  data_clean = data_10_sum_clean,
+  data_outputnoise = data_10_sum_outputnoise,
+  data_doublenoise = data_10_sum_doublenoise)
 
-2) no noise, 20 steps, random sampling
+errors_df <- errors_df %>%
+  add_row(WSComputeErrors(predictions = fit_10_sum,
+                             sample_size = 40,
+                             sample_method = 'trial',
+                             summarise_runs = 'summarised',
+                             datapoints = 'timesteps 10'))
+```
 
-3) no noise, 50 steps, random sampling
+Timesteps every 20 ticks
+```{r}
+# not summarised
+data_20_full_clean <- ws_train %>%
+  filter(datapoints == 'timesteps',
+         summarise_runs == 'full',
+         ticks %% 20 == 0) %>%
+  select(ticks, wolves, sheep, grass,
+         mean_wolves, mean_sheep, mean_grass,
+         min_wolves, min_sheep, min_grass,
+         max_wolves, max_sheep, max_grass,
+         sd_wolves, sd_sheep, sd_grass,
+         trend_wolves, trend_sheep, trend_grass,
+         initial_number_sheep, initial_number_wolves,
+         sheep_gain_from_food, wolves_gain_from_food,
+         sheep_reproduce, wolves_reproduce, grass_regrowth) %>%
+  pivot_wider(names_from = ticks,
+              values_from = c(wolves, sheep, grass))
 
-4) no noise, 10 steps, lhs
+data_20_full_outputnoise <- ws_train %>%
+  filter(datapoints == 'timesteps',
+         summarise_runs == 'full',
+         ticks %% 20 == 0) %>%
+  select(ticks, wolves_noise, sheep_noise, grass_noise,
+         mean_wolves_noise, mean_sheep_noise, mean_grass_noise,
+         min_wolves_noise, min_sheep_noise, min_grass_noise,
+         max_wolves_noise, max_sheep_noise, max_grass_noise,
+         sd_wolves_noise, sd_sheep_noise, sd_grass_noise,
+         trend_wolves_noise, trend_sheep_noise, trend_grass_noise,
+         initial_number_sheep, initial_number_wolves,
+         sheep_gain_from_food, wolves_gain_from_food,
+         sheep_reproduce, wolves_reproduce, grass_regrowth) %>%
+  rename(wolves = wolves_noise,
+         min_wolves = min_wolves_noise, max_wolves = max_wolves_noise,
+         sd_wolves = sd_wolves_noise, mean_wolves = mean_wolves_noise,
+         trend_wolves = trend_wolves_noise,
+         sheep = sheep_noise,
+         min_sheep = min_sheep_noise, max_sheep = max_sheep_noise,
+         sd_sheep = sd_sheep_noise, mean_sheep = mean_sheep_noise,
+         trend_sheep = trend_sheep_noise,
+         grass = grass_noise,
+         min_grass = min_grass_noise, max_grass = max_grass_noise,
+         sd_grass = sd_grass_noise, mean_grass = mean_grass_noise,
+         trend_grass = trend_grass_noise) %>%
+   pivot_wider(names_from = ticks,
+              values_from = c(wolves, sheep, grass))
 
-5) no noise, 20 steps, lhs
+data_20_full_doublenoise <- ws_train %>%
+  filter(datapoints == 'timesteps',
+         summarise_runs == 'full',
+         ticks_noise %% 20 == 0) %>%
+  select(ticks_noise, wolves_noise, sheep_noise, grass_noise,
+         mean_wolves_noise, mean_sheep_noise, mean_grass_noise,
+         min_wolves_noise, min_sheep_noise, min_grass_noise,
+         max_wolves_noise, max_sheep_noise, max_grass_noise,
+         sd_wolves_noise, sd_sheep_noise, sd_grass_noise,
+         trend_wolves_noise, trend_sheep_noise, trend_grass_noise,
+         initial_number_sheep, initial_number_wolves,
+         sheep_gain_from_food, wolves_gain_from_food,
+         sheep_reproduce, wolves_reproduce, grass_regrowth) %>%
+  rename(wolves = wolves_noise,
+         min_wolves = min_wolves_noise, max_wolves = max_wolves_noise,
+         sd_wolves = sd_wolves_noise, mean_wolves = mean_wolves_noise,
+         trend_wolves = trend_wolves_noise,
+         sheep = sheep_noise,
+         min_sheep = min_sheep_noise, max_sheep = max_sheep_noise,
+         sd_sheep = sd_sheep_noise, mean_sheep = mean_sheep_noise,
+         trend_sheep = trend_sheep_noise,
+         grass = grass_noise,
+         min_grass = min_grass_noise, max_grass = max_grass_noise,
+         sd_grass = sd_grass_noise, mean_grass = mean_grass_noise,
+         trend_grass = trend_grass_noise) %>%
+   pivot_wider(names_from = ticks_noise,
+              values_from = c(wolves, sheep, grass))
 
-6) no noise, 50 steps, random sampling
+data_20_full_clean <- FillOutData(data_20_full_clean)
+data_20_full_doublenoise <- FillOutData(data_20_full_doublenoise)
+data_20_full_outputnoise <- FillOutData(data_20_full_outputnoise)
+
+fit_20_full <- WolfSheepSimpleRegressionFitting(
+  data_clean = data_20_full_clean,
+  data_outputnoise = data_20_full_outputnoise,
+  data_doublenoise = data_20_full_doublenoise)
+
+errors_df <- errors_df %>%
+  add_row(WSComputeErrors(predictions = fit_20_full,
+                             sample_size = 40,
+                             sample_method = 'trial',
+                             summarise_runs = 'full',
+                             datapoints = 'timesteps 20'))
+
+# summarised
+data_20_sum_clean <- ws_train %>%
+  filter(datapoints == 'timesteps',
+         summarise_runs == 'summarised',
+         ticks %% 20 == 0) %>%
+  select(ticks, wolves, sheep, grass,
+         mean_wolves, mean_sheep, mean_grass,
+         min_wolves, min_sheep, min_grass,
+         max_wolves, max_sheep, max_grass,
+         sd_wolves, sd_sheep, sd_grass,
+         trend_wolves, trend_sheep, trend_grass,
+         initial_number_sheep, initial_number_wolves,
+         sheep_gain_from_food, wolves_gain_from_food,
+         sheep_reproduce, wolves_reproduce, grass_regrowth) %>%
+  pivot_wider(names_from = ticks,
+              values_from = c(wolves, sheep, grass))
+
+data_20_sum_outputnoise <- ws_train %>%
+  filter(datapoints == 'timesteps',
+         summarise_runs == 'summarised',
+         ticks %% 20 == 0) %>%
+  select(ticks, wolves_noise, sheep_noise, grass_noise,
+         mean_wolves_noise, mean_sheep_noise, mean_grass_noise,
+         min_wolves_noise, min_sheep_noise, min_grass_noise,
+         max_wolves_noise, max_sheep_noise, max_grass_noise,
+         sd_wolves_noise, sd_sheep_noise, sd_grass_noise,
+         trend_wolves_noise, trend_sheep_noise, trend_grass_noise,
+         initial_number_sheep, initial_number_wolves,
+         sheep_gain_from_food, wolves_gain_from_food,
+         sheep_reproduce, wolves_reproduce, grass_regrowth) %>%
+  rename(wolves = wolves_noise,
+         min_wolves = min_wolves_noise, max_wolves = max_wolves_noise,
+         sd_wolves = sd_wolves_noise, mean_wolves = mean_wolves_noise,
+         trend_wolves = trend_wolves_noise,
+         sheep = sheep_noise,
+         min_sheep = min_sheep_noise, max_sheep = max_sheep_noise,
+         sd_sheep = sd_sheep_noise, mean_sheep = mean_sheep_noise,
+         trend_sheep = trend_sheep_noise,
+         grass = grass_noise,
+         min_grass = min_grass_noise, max_grass = max_grass_noise,
+         sd_grass = sd_grass_noise, mean_grass = mean_grass_noise,
+         trend_grass = trend_grass_noise) %>%
+   pivot_wider(names_from = ticks,
+              values_from = c(wolves, sheep, grass))
+
+data_20_sum_doublenoise <- ws_train %>%
+  filter(datapoints == 'timesteps',
+         summarise_runs == 'summarised',
+         ticks_noise %% 20 == 0) %>%
+  select(ticks_noise, wolves_noise, sheep_noise, grass_noise,
+         mean_wolves_noise, mean_sheep_noise, mean_grass_noise,
+         min_wolves_noise, min_sheep_noise, min_grass_noise,
+         max_wolves_noise, max_sheep_noise, max_grass_noise,
+         sd_wolves_noise, sd_sheep_noise, sd_grass_noise,
+         trend_wolves_noise, trend_sheep_noise, trend_grass_noise,
+         initial_number_sheep, initial_number_wolves,
+         sheep_gain_from_food, wolves_gain_from_food,
+         sheep_reproduce, wolves_reproduce, grass_regrowth) %>%
+  rename(wolves = wolves_noise,
+         min_wolves = min_wolves_noise, max_wolves = max_wolves_noise,
+         sd_wolves = sd_wolves_noise, mean_wolves = mean_wolves_noise,
+         trend_wolves = trend_wolves_noise,
+         sheep = sheep_noise,
+         min_sheep = min_sheep_noise, max_sheep = max_sheep_noise,
+         sd_sheep = sd_sheep_noise, mean_sheep = mean_sheep_noise,
+         trend_sheep = trend_sheep_noise,
+         grass = grass_noise,
+         min_grass = min_grass_noise, max_grass = max_grass_noise,
+         sd_grass = sd_grass_noise, mean_grass = mean_grass_noise,
+         trend_grass = trend_grass_noise) %>%
+   pivot_wider(names_from = ticks_noise,
+              values_from = c(wolves, sheep, grass))
+
+data_20_sum_clean <- FillOutData(data_20_sum_clean)
+data_20_sum_doublenoise <- FillOutData(data_20_sum_doublenoise)
+data_20_sum_outputnoise <- FillOutData(data_20_sum_outputnoise)
+
+fit_20_sum <- WolfSheepSimpleRegressionFitting(
+  data_clean = data_20_sum_clean,
+  data_outputnoise = data_20_sum_outputnoise,
+  data_doublenoise = data_20_sum_doublenoise)
+
+errors_df <- errors_df %>%
+  add_row(WSComputeErrors(predictions = fit_20_sum,
+                             sample_size = 40,
+                             sample_method = 'trial',
+                             summarise_runs = 'summarised',
+                             datapoints = 'timesteps 20'))
+```
+
+Timesteps every 50 ticks
+```{r}
+# not summarised
+data_50_full_clean <- ws_train %>%
+  filter(datapoints == 'timesteps',
+         summarise_runs == 'full',
+         ticks %% 50 == 0) %>%
+  select(ticks, wolves, sheep, grass,
+         mean_wolves, mean_sheep, mean_grass,
+         min_wolves, min_sheep, min_grass,
+         max_wolves, max_sheep, max_grass,
+         sd_wolves, sd_sheep, sd_grass,
+         trend_wolves, trend_sheep, trend_grass,
+         initial_number_sheep, initial_number_wolves,
+         sheep_gain_from_food, wolves_gain_from_food,
+         sheep_reproduce, wolves_reproduce, grass_regrowth) %>%
+  pivot_wider(names_from = ticks,
+              values_from = c(wolves, sheep, grass))
+
+data_50_full_outputnoise <- ws_train %>%
+  filter(datapoints == 'timesteps',
+         summarise_runs == 'full',
+         ticks %% 50 == 0) %>%
+  select(ticks, wolves_noise, sheep_noise, grass_noise,
+         mean_wolves_noise, mean_sheep_noise, mean_grass_noise,
+         min_wolves_noise, min_sheep_noise, min_grass_noise,
+         max_wolves_noise, max_sheep_noise, max_grass_noise,
+         sd_wolves_noise, sd_sheep_noise, sd_grass_noise,
+         trend_wolves_noise, trend_sheep_noise, trend_grass_noise,
+         initial_number_sheep, initial_number_wolves,
+         sheep_gain_from_food, wolves_gain_from_food,
+         sheep_reproduce, wolves_reproduce, grass_regrowth) %>%
+  rename(wolves = wolves_noise,
+         min_wolves = min_wolves_noise, max_wolves = max_wolves_noise,
+         sd_wolves = sd_wolves_noise, mean_wolves = mean_wolves_noise,
+         trend_wolves = trend_wolves_noise,
+         sheep = sheep_noise,
+         min_sheep = min_sheep_noise, max_sheep = max_sheep_noise,
+         sd_sheep = sd_sheep_noise, mean_sheep = mean_sheep_noise,
+         trend_sheep = trend_sheep_noise,
+         grass = grass_noise,
+         min_grass = min_grass_noise, max_grass = max_grass_noise,
+         sd_grass = sd_grass_noise, mean_grass = mean_grass_noise,
+         trend_grass = trend_grass_noise) %>%
+   pivot_wider(names_from = ticks,
+              values_from = c(wolves, sheep, grass))
+
+data_50_full_doublenoise <- ws_train %>%
+  filter(datapoints == 'timesteps',
+         summarise_runs == 'full',
+         ticks_noise %% 50 == 0) %>%
+  select(ticks_noise, wolves_noise, sheep_noise, grass_noise,
+         mean_wolves_noise, mean_sheep_noise, mean_grass_noise,
+         min_wolves_noise, min_sheep_noise, min_grass_noise,
+         max_wolves_noise, max_sheep_noise, max_grass_noise,
+         sd_wolves_noise, sd_sheep_noise, sd_grass_noise,
+         trend_wolves_noise, trend_sheep_noise, trend_grass_noise,
+         initial_number_sheep, initial_number_wolves,
+         sheep_gain_from_food, wolves_gain_from_food,
+         sheep_reproduce, wolves_reproduce, grass_regrowth) %>%
+  rename(wolves = wolves_noise,
+         min_wolves = min_wolves_noise, max_wolves = max_wolves_noise,
+         sd_wolves = sd_wolves_noise, mean_wolves = mean_wolves_noise,
+         trend_wolves = trend_wolves_noise,
+         sheep = sheep_noise,
+         min_sheep = min_sheep_noise, max_sheep = max_sheep_noise,
+         sd_sheep = sd_sheep_noise, mean_sheep = mean_sheep_noise,
+         trend_sheep = trend_sheep_noise,
+         grass = grass_noise,
+         min_grass = min_grass_noise, max_grass = max_grass_noise,
+         sd_grass = sd_grass_noise, mean_grass = mean_grass_noise,
+         trend_grass = trend_grass_noise) %>%
+   pivot_wider(names_from = ticks_noise,
+              values_from = c(wolves, sheep, grass))
+
+data_50_full_clean <- FillOutData(data_50_full_clean)
+data_50_full_doublenoise <- FillOutData(data_50_full_doublenoise)
+data_50_full_outputnoise <- FillOutData(data_50_full_outputnoise)
+
+fit_50_full <- WolfSheepSimpleRegressionFitting(
+  data_clean = data_50_full_clean,
+  data_outputnoise = data_50_full_outputnoise,
+  data_doublenoise = data_50_full_doublenoise)
+
+errors_df <- errors_df %>%
+  add_row(WSComputeErrors(predictions = fit_50_full,
+                             sample_size = 40,
+                             sample_method = 'trial',
+                             summarise_runs = 'full',
+                             datapoints = 'timesteps 50'))
+
+# summarised
+data_50_sum_clean <- ws_train %>%
+  filter(datapoints == 'timesteps',
+         summarise_runs == 'summarised',
+         ticks %% 50 == 0) %>%
+  select(ticks, wolves, sheep, grass,
+         mean_wolves, mean_sheep, mean_grass,
+         min_wolves, min_sheep, min_grass,
+         max_wolves, max_sheep, max_grass,
+         sd_wolves, sd_sheep, sd_grass,
+         trend_wolves, trend_sheep, trend_grass,
+         initial_number_sheep, initial_number_wolves,
+         sheep_gain_from_food, wolves_gain_from_food,
+         sheep_reproduce, wolves_reproduce, grass_regrowth) %>%
+  pivot_wider(names_from = ticks,
+              values_from = c(wolves, sheep, grass))
+
+data_50_sum_outputnoise <- ws_train %>%
+  filter(datapoints == 'timesteps',
+         summarise_runs == 'summarised',
+         ticks %% 50 == 0) %>%
+  select(ticks, wolves_noise, sheep_noise, grass_noise,
+         mean_wolves_noise, mean_sheep_noise, mean_grass_noise,
+         min_wolves_noise, min_sheep_noise, min_grass_noise,
+         max_wolves_noise, max_sheep_noise, max_grass_noise,
+         sd_wolves_noise, sd_sheep_noise, sd_grass_noise,
+         trend_wolves_noise, trend_sheep_noise, trend_grass_noise,
+         initial_number_sheep, initial_number_wolves,
+         sheep_gain_from_food, wolves_gain_from_food,
+         sheep_reproduce, wolves_reproduce, grass_regrowth) %>%
+  rename(wolves = wolves_noise,
+         min_wolves = min_wolves_noise, max_wolves = max_wolves_noise,
+         sd_wolves = sd_wolves_noise, mean_wolves = mean_wolves_noise,
+         trend_wolves = trend_wolves_noise,
+         sheep = sheep_noise,
+         min_sheep = min_sheep_noise, max_sheep = max_sheep_noise,
+         sd_sheep = sd_sheep_noise, mean_sheep = mean_sheep_noise,
+         trend_sheep = trend_sheep_noise,
+         grass = grass_noise,
+         min_grass = min_grass_noise, max_grass = max_grass_noise,
+         sd_grass = sd_grass_noise, mean_grass = mean_grass_noise,
+         trend_grass = trend_grass_noise) %>%
+   pivot_wider(names_from = ticks,
+              values_from = c(wolves, sheep, grass))
+
+data_50_sum_doublenoise <- ws_train %>%
+  filter(datapoints == 'timesteps',
+         summarise_runs == 'summarised',
+         ticks_noise %% 50 == 0) %>%
+  select(ticks_noise, wolves_noise, sheep_noise, grass_noise,
+         mean_wolves_noise, mean_sheep_noise, mean_grass_noise,
+         min_wolves_noise, min_sheep_noise, min_grass_noise,
+         max_wolves_noise, max_sheep_noise, max_grass_noise,
+         sd_wolves_noise, sd_sheep_noise, sd_grass_noise,
+         trend_wolves_noise, trend_sheep_noise, trend_grass_noise,
+         initial_number_sheep, initial_number_wolves,
+         sheep_gain_from_food, wolves_gain_from_food,
+         sheep_reproduce, wolves_reproduce, grass_regrowth) %>%
+  rename(wolves = wolves_noise,
+         min_wolves = min_wolves_noise, max_wolves = max_wolves_noise,
+         sd_wolves = sd_wolves_noise, mean_wolves = mean_wolves_noise,
+         trend_wolves = trend_wolves_noise,
+         sheep = sheep_noise,
+         min_sheep = min_sheep_noise, max_sheep = max_sheep_noise,
+         sd_sheep = sd_sheep_noise, mean_sheep = mean_sheep_noise,
+         trend_sheep = trend_sheep_noise,
+         grass = grass_noise,
+         min_grass = min_grass_noise, max_grass = max_grass_noise,
+         sd_grass = sd_grass_noise, mean_grass = mean_grass_noise,
+         trend_grass = trend_grass_noise) %>%
+   pivot_wider(names_from = ticks_noise,
+              values_from = c(wolves, sheep, grass))
+
+data_50_sum_clean <- FillOutData(data_50_sum_clean)
+data_50_sum_doublenoise <- FillOutData(data_50_sum_doublenoise)
+data_50_sum_outputnoise <- FillOutData(data_50_sum_outputnoise)
+
+fit_50_sum <- WolfSheepSimpleRegressionFitting(
+  data_clean = data_50_sum_clean,
+  data_outputnoise = data_50_sum_outputnoise,
+  data_doublenoise = data_50_sum_doublenoise)
+
+errors_df <- errors_df %>%
+  add_row(WSComputeErrors(predictions = fit_50_sum,
+                             sample_size = 40,
+                             sample_method = 'trial',
+                             summarise_runs = 'summarised',
+                             datapoints = 'timesteps 50'))
+```
+
+Full time series
+```{r}
+# not summarised
+data_series_full_clean <- ws_train %>%
+  filter(datapoints == 'timeseries',
+         summarise_runs == 'full') %>%
+  select(ticks, wolves, sheep, grass,
+         mean_wolves, mean_sheep, mean_grass,
+         min_wolves, min_sheep, min_grass,
+         max_wolves, max_sheep, max_grass,
+         sd_wolves, sd_sheep, sd_grass,
+         trend_wolves, trend_sheep, trend_grass,
+         initial_number_sheep, initial_number_wolves,
+         sheep_gain_from_food, wolves_gain_from_food,
+         sheep_reproduce, wolves_reproduce, grass_regrowth) %>%
+  pivot_wider(names_from = ticks,
+              values_from = c(wolves, sheep, grass))
+
+data_series_full_outputnoise <- ws_train %>%
+  filter(datapoints == 'timeseries',
+         summarise_runs == 'full') %>%
+  select(ticks, wolves_noise, sheep_noise, grass_noise,
+         mean_wolves_noise, mean_sheep_noise, mean_grass_noise,
+         min_wolves_noise, min_sheep_noise, min_grass_noise,
+         max_wolves_noise, max_sheep_noise, max_grass_noise,
+         sd_wolves_noise, sd_sheep_noise, sd_grass_noise,
+         trend_wolves_noise, trend_sheep_noise, trend_grass_noise,
+         initial_number_sheep, initial_number_wolves,
+         sheep_gain_from_food, wolves_gain_from_food,
+         sheep_reproduce, wolves_reproduce, grass_regrowth) %>%
+  rename(wolves = wolves_noise,
+         min_wolves = min_wolves_noise, max_wolves = max_wolves_noise,
+         sd_wolves = sd_wolves_noise, mean_wolves = mean_wolves_noise,
+         trend_wolves = trend_wolves_noise,
+         sheep = sheep_noise,
+         min_sheep = min_sheep_noise, max_sheep = max_sheep_noise,
+         sd_sheep = sd_sheep_noise, mean_sheep = mean_sheep_noise,
+         trend_sheep = trend_sheep_noise,
+         grass = grass_noise,
+         min_grass = min_grass_noise, max_grass = max_grass_noise,
+         sd_grass = sd_grass_noise, mean_grass = mean_grass_noise,
+         trend_grass = trend_grass_noise) %>%
+   pivot_wider(names_from = ticks,
+              values_from = c(wolves, sheep, grass))
+
+data_series_full_doublenoise <- ws_train %>%
+  filter(datapoints == 'timeseries',
+         summarise_runs == 'full') %>%
+  select(ticks_noise, wolves_noise, sheep_noise, grass_noise,
+         mean_wolves_noise, mean_sheep_noise, mean_grass_noise,
+         min_wolves_noise, min_sheep_noise, min_grass_noise,
+         max_wolves_noise, max_sheep_noise, max_grass_noise,
+         sd_wolves_noise, sd_sheep_noise, sd_grass_noise,
+         trend_wolves_noise, trend_sheep_noise, trend_grass_noise,
+         initial_number_sheep, initial_number_wolves,
+         sheep_gain_from_food, wolves_gain_from_food,
+         sheep_reproduce, wolves_reproduce, grass_regrowth) %>%
+  rename(wolves = wolves_noise,
+         min_wolves = min_wolves_noise, max_wolves = max_wolves_noise,
+         sd_wolves = sd_wolves_noise, mean_wolves = mean_wolves_noise,
+         trend_wolves = trend_wolves_noise,
+         sheep = sheep_noise,
+         min_sheep = min_sheep_noise, max_sheep = max_sheep_noise,
+         sd_sheep = sd_sheep_noise, mean_sheep = mean_sheep_noise,
+         trend_sheep = trend_sheep_noise,
+         grass = grass_noise,
+         min_grass = min_grass_noise, max_grass = max_grass_noise,
+         sd_grass = sd_grass_noise, mean_grass = mean_grass_noise,
+         trend_grass = trend_grass_noise) %>%
+   pivot_wider(names_from = ticks_noise,
+              values_from = c(wolves, sheep, grass))
+
+# complete incomplete cases before fitting
+data_series_full_clean <- FillOutData(data_series_full_clean)
+data_series_full_doublenoise <-
+  FillOutData(data_series_full_doublenoise)
+data_series_full_outputnoise <-
+  FillOutData(data_series_full_outputnoise)
+
+fit_series_full <- WolfSheepSimpleRegressionFitting(
+  data_clean = data_series_full_clean,
+  data_outputnoise = data_series_full_outputnoise,
+  data_doublenoise = data_series_full_doublenoise)
+
+errors_df <- errors_df %>%
+  add_row(WSComputeErrors(predictions = fit_series_full,
+                             sample_size = 40,
+                             sample_method = 'trial',
+                             summarise_runs = 'full',
+                             datapoints = 'timeseries'))
+
+# summarised
+data_series_sum_clean <- ws_train %>%
+  filter(datapoints == 'timeseries',
+         summarise_runs == 'summarised') %>%
+  select(ticks, wolves, sheep, grass,
+         mean_wolves, mean_sheep, mean_grass,
+         min_wolves, min_sheep, min_grass,
+         max_wolves, max_sheep, max_grass,
+         sd_wolves, sd_sheep, sd_grass,
+         trend_wolves, trend_sheep, trend_grass,
+         initial_number_sheep, initial_number_wolves,
+         sheep_gain_from_food, wolves_gain_from_food,
+         sheep_reproduce, wolves_reproduce, grass_regrowth) %>%
+  pivot_wider(names_from = ticks,
+              values_from = c(wolves, sheep, grass))
+
+data_series_sum_outputnoise <- ws_train %>%
+  filter(datapoints == 'timeseries',
+         summarise_runs == 'summarised') %>%
+  select(ticks, wolves_noise, sheep_noise, grass_noise,
+         mean_wolves_noise, mean_sheep_noise, mean_grass_noise,
+         min_wolves_noise, min_sheep_noise, min_grass_noise,
+         max_wolves_noise, max_sheep_noise, max_grass_noise,
+         sd_wolves_noise, sd_sheep_noise, sd_grass_noise,
+         trend_wolves_noise, trend_sheep_noise, trend_grass_noise,
+         initial_number_sheep, initial_number_wolves,
+         sheep_gain_from_food, wolves_gain_from_food,
+         sheep_reproduce, wolves_reproduce, grass_regrowth) %>%
+  rename(wolves = wolves_noise,
+         min_wolves = min_wolves_noise, max_wolves = max_wolves_noise,
+         sd_wolves = sd_wolves_noise, mean_wolves = mean_wolves_noise,
+         trend_wolves = trend_wolves_noise,
+         sheep = sheep_noise,
+         min_sheep = min_sheep_noise, max_sheep = max_sheep_noise,
+         sd_sheep = sd_sheep_noise, mean_sheep = mean_sheep_noise,
+         trend_sheep = trend_sheep_noise,
+         grass = grass_noise,
+         min_grass = min_grass_noise, max_grass = max_grass_noise,
+         sd_grass = sd_grass_noise, mean_grass = mean_grass_noise,
+         trend_grass = trend_grass_noise) %>%
+   pivot_wider(names_from = ticks,
+              values_from = c(wolves, sheep, grass))
+
+data_series_sum_doublenoise <- ws_train %>%
+  filter(datapoints == 'timeseries',
+         summarise_runs == 'summarised') %>%
+  select(ticks_noise, wolves_noise, sheep_noise, grass_noise,
+         mean_wolves_noise, mean_sheep_noise, mean_grass_noise,
+         min_wolves_noise, min_sheep_noise, min_grass_noise,
+         max_wolves_noise, max_sheep_noise, max_grass_noise,
+         sd_wolves_noise, sd_sheep_noise, sd_grass_noise,
+         trend_wolves_noise, trend_sheep_noise, trend_grass_noise,
+         initial_number_sheep, initial_number_wolves,
+         sheep_gain_from_food, wolves_gain_from_food,
+         sheep_reproduce, wolves_reproduce, grass_regrowth) %>%
+  rename(wolves = wolves_noise,
+         min_wolves = min_wolves_noise, max_wolves = max_wolves_noise,
+         sd_wolves = sd_wolves_noise, mean_wolves = mean_wolves_noise,
+         trend_wolves = trend_wolves_noise,
+         sheep = sheep_noise,
+         min_sheep = min_sheep_noise, max_sheep = max_sheep_noise,
+         sd_sheep = sd_sheep_noise, mean_sheep = mean_sheep_noise,
+         trend_sheep = trend_sheep_noise,
+         grass = grass_noise,
+         min_grass = min_grass_noise, max_grass = max_grass_noise,
+         sd_grass = sd_grass_noise, mean_grass = mean_grass_noise,
+         trend_grass = trend_grass_noise) %>%
+   pivot_wider(names_from = ticks_noise,
+              values_from = c(wolves, sheep, grass))
+
+data_series_sum_clean <- FillOutData(data_series_sum_clean)
+data_series_sum_doublenoise <-
+  FillOutData(data_series_sum_doublenoise)
+data_series_sum_outputnoise <-
+  FillOutData(data_series_sum_outputnoise)
+
+fit_series_sum <- WolfSheepSimpleRegressionFitting(
+  data_clean = data_series_sum_clean,
+  data_outputnoise = data_series_sum_outputnoise,
+  data_doublenoise = data_series_sum_doublenoise)
+
+errors_df <- errors_df %>%
+  add_row(WSComputeErrors(predictions = fit_series_sum,
+                             sample_size = 40,
+                             sample_method = 'trial',
+                             summarise_runs = 'summarised',
+                             datapoints = 'timeseries'))
+```
+
+Save data:
+```{r}
+# check what I need to call this
+errors %>%
+  write_csv('data/results/wolfsheep_errors.csv')
+
+# save fitted values also? (this would just be for plotting, of which I'm not so sure yet that I want to do that)
+```
+
+########## ------------ OLD CODE ------------------- #############
 
 # Visualise results
 Compare each error metric:
