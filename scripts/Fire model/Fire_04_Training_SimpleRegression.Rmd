@@ -36,7 +36,7 @@ library(ggbeeswarm)
 
 Source files for error computation and plotting functions:
 ```{r}
-source('scripts/Fire model/Fire_Functions.R')
+fire_training <- read_csv('data/training/fire_training.csv')
 ```
 
 # Fitting
@@ -312,8 +312,13 @@ data_time_full_outputnoise <- fire_training %>%
   filter(datapoints == 'timesteps',
          summarise_runs == 'full') %>%
   select(time_label, density, directions, burn_percentage_noise,
-         total_ticks, mean_burn, min_burn, max_burn, sd_burn,
-         trend_burn) %>%
+         total_ticks, mean_burn_noise, min_burn_noise,
+         max_burn_noise, trend_burn_noise, sd_burn_noise) %>%
+  rename(mean_burn = mean_burn_noise,
+         min_burn = min_burn_noise,
+         max_burn = max_burn_noise,
+         sd_burn = sd_burn_noise,
+         trend_burn = trend_burn_noise) %>%
   pivot_wider(names_from = time_label,
               values_from = burn_percentage_noise)
 
@@ -347,8 +352,13 @@ data_time_sum_outputnoise <- fire_training %>%
   filter(datapoints == 'timesteps',
          summarise_runs == 'summarised') %>%
   select(time_label, density, directions, burn_percentage_noise,
-         total_ticks, mean_burn, min_burn, max_burn, sd_burn,
-         trend_burn) %>%
+         total_ticks, mean_burn_noise, min_burn_noise,
+         max_burn_noise, sd_burn_noise, trend_burn_noise) %>%
+  rename(mean_burn = mean_burn_noise,
+         min_burn = min_burn_noise,
+         max_burn = max_burn_noise,
+         sd_burn = sd_burn_noise,
+         trend_burn = trend_burn_noise) %>%
   pivot_wider(names_from = time_label,
               values_from = burn_percentage_noise)
 
@@ -381,7 +391,13 @@ data_end_full_outputnoise <- fire_training %>%
   filter(datapoints == 'endpoints',
          summarise_runs == 'full') %>%
   select(time_label, density, directions, burn_percentage_noise,
-         mean_burn, min_burn, max_burn, sd_burn, trend_burn) %>%
+         mean_burn_noise, min_burn_noise, max_burn_noise,
+         sd_burn_noise, trend_burn_noise) %>%
+  rename(mean_burn = mean_burn_noise,
+         min_burn = min_burn_noise,
+         max_burn = max_burn_noise,
+         sd_burn = sd_burn_noise,
+         trend_burn = trend_burn_noise) %>%
   pivot_wider(names_from = time_label,
               values_from = burn_percentage_noise)
 
@@ -415,7 +431,13 @@ data_end_sum_outputnoise <- fire_training %>%
   filter(datapoints == 'endpoints',
          summarise_runs == 'summarised') %>%
   select(time_label, density, directions, burn_percentage_noise,
-         mean_burn, min_burn, max_burn, sd_burn, trend_burn) %>%
+         mean_burn_noise, min_burn_noise, max_burn_noise,
+         sd_burn_noise, trend_burn_noise) %>%
+  rename(mean_burn = mean_burn_noise,
+         min_burn = min_burn_noise,
+         max_burn = max_burn_noise,
+         sd_burn = sd_burn_noise,
+         trend_burn = trend_burn_noise) %>%
   pivot_wider(names_from = time_label,
               values_from = burn_percentage_noise)
 

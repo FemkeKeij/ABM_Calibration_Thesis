@@ -120,29 +120,40 @@ For the summarised runs and non-summarised runs.
 
 ```{r}
 TimeSeriesSummarising <- function(data, full = FALSE,
-                                  timesteps = TRUE,
-                                  parameter){
+                                  timesteps = TRUE){
   if(full){
     data_return <- data %>%
       # per parameter combination & run number
       group_by(combination_number, run) %>%
       # compute mean, min, max, sd, and trend
-      mutate(mean_burn = mean(get(parameter)),
-             min_burn = min(get(parameter)),
-             max_burn = max(get(parameter)),
-             sd_burn = sd(get(parameter)),
-             trend_burn = sens.slope(get(parameter))$estimates,
+      mutate(mean_burn = mean(burn_percentage),
+             mean_burn_noise = mean(burn_percentage_noise),
+             min_burn = min(burn_percentage),
+             min_burn_noise = min(burn_percentage_noise),
+             max_burn = max(burn_percentage),
+             max_burn_noise = max(burn_percentage_noise),
+             sd_burn = sd(burn_percentage),
+             sd_burn_noise = sd(burn_percentage_noise),
+             trend_burn = sens.slope(burn_percentage)$estimates,
+             trend_burn_noise =
+               sens.slope(burn_percentage_noise)$estimates,
              total_ticks = max(ticks))
   } else {
     data_return <- data %>%
       # per parameter combination
       group_by(combination_number) %>%
       # compute mean, min, max, sd, and trend
-      mutate(mean_burn = mean(get(parameter)),
-             min_burn = min(get(parameter)),
-             max_burn = max(get(parameter)),
-             sd_burn = sd(get(parameter)),
-             trend_burn = sens.slope(get(parameter))$estimates,
+      mutate(mean_burn = mean(burn_percentage),
+             mean_burn_noise = mean(burn_percentage_noise),
+             min_burn = min(burn_percentage),
+             min_burn_noise = min(burn_percentage_noise),
+             max_burn = max(burn_percentage),
+             max_burn_noise = max(burn_percentage_noise),
+             sd_burn = sd(burn_percentage),
+             sd_burn_noise = sd(burn_percentage_noise),
+             trend_burn = sens.slope(burn_percentage)$estimates,
+             trend_burn_noise =
+               sens.slope(burn_percentage_noise)$estimates,
              total_ticks = max(ticks))
   }
   
@@ -159,10 +170,14 @@ TimeSeriesSummarising <- function(data, full = FALSE,
 
 Save all data:
 ```{r}
+fire_summary_noise <- fire_summary_noise %>%
+  select(- mean_burn_percentage)
+fire_full_noise <- fire_full_noise %>%
+  select(- mean_burn_percentage)
+
 # summarised runs, timesteps
 fire_summary_timesteps <- TimeSeriesSummarising(
-  fire_summary_noise, full = FALSE, timesteps = TRUE,
-  parameter = 'burn_percentage_noise') %>%
+  fire_summary_noise, full = FALSE, timesteps = TRUE) %>%
   mutate(sample_size = 198,
          sample_method = 'full',
          summarise_runs = 'summarised',
@@ -170,8 +185,7 @@ fire_summary_timesteps <- TimeSeriesSummarising(
 
 # summarised runs, endpoints only
 fire_summary_endpoints <- TimeSeriesSummarising(
-  fire_summary_noise, full = FALSE, timesteps = FALSE,
-  parameter = 'burn_percentage_noise') %>%
+  fire_summary_noise, full = FALSE, timesteps = FALSE) %>%
   mutate(sample_size = 198,
          sample_method = 'full',
          summarise_runs = 'summarised',
@@ -179,8 +193,7 @@ fire_summary_endpoints <- TimeSeriesSummarising(
 
 # unsummarised runs, timesteps
 fire_full_timesteps <- TimeSeriesSummarising(
-  fire_full_noise, full = TRUE, timesteps = TRUE,
-  parameter = 'burn_percentage_noise') %>%
+  fire_full_noise, full = TRUE, timesteps = TRUE) %>%
   mutate(sample_size = 198,
          sample_method = 'full',
          summarise_runs = 'full',
@@ -188,8 +201,7 @@ fire_full_timesteps <- TimeSeriesSummarising(
 
 # unsummarised runs, endpoints only
 fire_full_endpoints <- TimeSeriesSummarising(
-  fire_full_noise, full = TRUE, timesteps = FALSE,
-  parameter = 'burn_percentage_noise') %>%
+  fire_full_noise, full = TRUE, timesteps = FALSE) %>%
   mutate(sample_size = 198,
          sample_method = 'full',
          summarise_runs = 'full',
@@ -199,8 +211,7 @@ fire_full_endpoints <- TimeSeriesSummarising(
 fire_training <- bind_rows(fire_summary_timesteps,
                            fire_summary_endpoints,
                            fire_full_timesteps,
-                           fire_full_endpoints) %>%
-  select(- mean_burn_percentage)
+                           fire_full_endpoints)
 
 fire_training %>%
   write_csv(file = 'data/training/fire_training.csv')
