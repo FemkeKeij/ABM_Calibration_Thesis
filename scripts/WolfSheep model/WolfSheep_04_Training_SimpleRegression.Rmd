@@ -1153,7 +1153,7 @@ errors_df <- errors_df %>%
 ```
 
 Full time series
-```{r}
+```{r,  eval = FALSE}
 # not summarised
 data_series_full_clean <- ws_train %>%
   filter(datapoints == 'timeseries',
@@ -1335,8 +1335,8 @@ errors_df <- errors_df %>%
 Save data:
 ```{r}
 # check what I need to call this
-errors %>%
-  write_csv('data/results/wolfsheep_errors.csv')
+errors_df %>%
+  write_csv('data/results/wolfsheep_LR_errors.csv')
 
 # save fitted values also? (this would just be for plotting, of which I'm not so sure yet that I want to do that)
 ```
@@ -1344,11 +1344,78 @@ errors %>%
 ########## ------------ OLD CODE ------------------- #############
 
 # Visualise results
-Compare each error metric:
+Split into sheep, wolves, grass:
 ```{r}
-VisualiseErrorMetrics(out = out,
-                      noise = FALSE)
+errors_long <- errors_df %>%
+  pivot_longer(cols = - c(noise, sample_size, sample_method,
+                          summarise_runs, datapoints),
+               names_to = 'metric',
+               values_to = 'value') %>%
+  rowwise %>%
+  mutate(metric_general = str_split(metric, '_', 2)[[1]][1],
+         entity = str_split(metric, '_', 2)[[1]][2]) %>%
+  select(- metric) %>%
+  rename(metric = metric_general) %>%
+  mutate(entity = ifelse(entity == 'initial_sheep_correct',
+                     'initial_sheep', entity),
+         entity = ifelse(entity == 'initial_wolves_correct',
+                         'initial_wolves', entity),
+         entity = ifelse(entity == 'food_sheep_correct',
+                         'food_sheep', entity),
+         entity = ifelse(entity == 'food_wolves_correct',
+                         'food_wolves', entity),
+         entity = ifelse(entity == 'sheep_rep_correct',
+                         'sheep_rep', entity),
+         entity = ifelse(entity == 'wolves_rep_correct',
+                         'wolves_rep', entity),
+         entity = ifelse(entity == 'grass_correct',
+                         'grass', entity),
+         entity = ifelse(entity == 'correct_params',
+                         'all parameters', entity))
 
-VisualiseErrorMetrics(out = out,
-                      noise = TRUE)
+# for the full data
+plot_errors_long_full_RMSE <- errors_long %>%
+  filter(summarise_runs == 'full',
+         metric == 'RMSE' | metric == 'NRMSE') %>%
+  ggplot(mapping = aes(x = datapoints, y = value,
+                       fill = noise)) +
+  geom_bar(position = 'dodge', stat = 'identity') +
+  facet_wrap(metric ~ entity,
+             scales = 'free_y') +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 90))
+
+plot_errors_long_full_ppp <- errors_long %>%
+  filter(summarise_runs == 'full',
+         metric == 'ppp' | metric == 'perc') %>%
+  ggplot(mapping = aes(x = datapoints, y = value,
+                       fill = noise)) +
+  geom_bar(position = 'dodge', stat = 'identity') +
+  facet_wrap(metric ~ entity,
+             scales = 'free_y') +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 90))
+
+# for the summarised data
+plot_errors_long_sum_RMSE <- errors_long %>%
+  filter(summarise_runs == 'summarised',
+         metric == 'RMSE' | metric == 'NRMSE') %>%
+  ggplot(mapping = aes(x = datapoints, y = value,
+                       fill = noise)) +
+  geom_bar(position = 'dodge', stat = 'identity') +
+  facet_wrap(metric ~ entity,
+             scales = 'free_y') +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 90))
+
+plot_errors_long_sum_ppp <- errors_long %>%
+  filter(summarise_runs == 'summarised',
+         metric == 'ppp' | metric == 'perc') %>%
+  ggplot(mapping = aes(x = datapoints, y = value,
+                       fill = noise)) +
+  geom_bar(position = 'dodge', stat = 'identity') +
+  facet_wrap(metric ~ entity,
+             scales = 'free_y') +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 90))
 ```
