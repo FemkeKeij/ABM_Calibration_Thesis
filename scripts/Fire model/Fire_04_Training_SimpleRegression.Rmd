@@ -39,12 +39,6 @@ Source files for error computation and plotting functions:
 source('scripts/Fire model/Fire_Functions.R')
 ```
 
-Read in the data:
-```{r}
-# training data
-fire_training <- read_csv('data/training/fire_training.csv')
-```
-
 # Fitting
 Fit a linear regression to predict density and a logistic regression to predict directions. We use 5-fold cross-validation to assess predictive performance.
 
@@ -61,11 +55,10 @@ To perform:
 4) feed to fitting function
 
 ```{r}
-FireSimpleRegressionFitting <- function(data_clean, data_noise){
+FireSimpleRegressionFitting <- function(data_clean,
+                                        data_noise){
   # data_clean: the data frame containing the input parameters as well as the relevant outputs
-  # data_noise: if testing should be done on noisy data, supply data with noise here
-  
-  noise <- ifelse(any(is.na(data_noise)), FALSE, TRUE)
+  # data_noise: supply data with noise here
   
   # create the folds
   flds <- createFolds(1:nrow(data_clean),
@@ -76,15 +69,14 @@ FireSimpleRegressionFitting <- function(data_clean, data_noise){
                        directions = numeric(),
                        density_pred = numeric(),
                        directions_pred = numeric(),
+                       noise = character(),
                        fold = numeric())
   
   # set directions 4 to 0 and 8 to 1 (eases interpretation of logistic regression)
   data_clean <- data_clean %>%
     mutate(directions = ifelse(directions == 4, 0, 1))
-  if(noise){
-    data_noise <- data_noise %>%
+  data_noise <- data_noise %>%
       mutate(directions = ifelse(directions == 4, 0, 1))
-  }
   
   # for each cross-validation fold
   for(i in 1:5){
@@ -92,42 +84,67 @@ FireSimpleRegressionFitting <- function(data_clean, data_noise){
     dat_train <- data_clean %>%
       filter(!row_number() %in% unlist(flds[i]))
     
-    # obtain the test fold
-    if(noise){
-      dat_test <- data_noise %>%
+    # obtain the test fold without noise
+    dat_test_clean <- data_clean %>%
         filter(row_number() %in% unlist(flds[i]))
-    } else {
-      dat_test <- data_clean %>%
+    # obtain the test fold with noise
+    dat_test_noise <- data_noise %>%
         filter(row_number() %in% unlist(flds[i]))
-    }
-  
+    
     # train the linear & logistic regressions
     fit_lm_density <- lm(formula = density ~ . - directions,
                          data = dat_train)
     fit_glm_directions <- glm(formula = directions ~ . - density,
                               data = dat_train)
     
-    # predict the density & directions in the left-out fold
-    predict_density <- predict.lm(fit_lm_density,
-                                  newdata = dat_test,
+    # predict the density & directions in the left-out fold without noie
+    predict_density_clean <- predict.lm(fit_lm_density,
+                                  newdata = dat_test_clean,
                                   interval = 'prediction')
-    predict_directions <- predict.glm(fit_glm_directions,
-                                      newdata = dat_test,
+    predict_directions_clean <- predict.glm(fit_glm_directions,
+                                      newdata = dat_test_clean,
                                       type = 'response')
+    # predict the density & directions in the left-out fold with noise
+    predict_density_noise <- predict.lm(fit_lm_density,
+                                  newdata = dat_test_noise,
+                                  interval = 'prediction')
+    predict_directions_noise <- predict.glm(fit_glm_directions,
+                                      newdata = dat_test_noise,
+                                      type = 'response')
+    
+    
     # correct predictions for directions to 4 vs. 8
-    for(j in 1:length(predict_directions)){
-      predict_directions[j] <- ifelse(predict_directions[j] <= 0.5,
+    for(j in 1:length(predict_directions_clean)){
+      predict_directions_clean[j] <- ifelse(
+        predict_directions_clean[j] <= 0.5,
+                                      4, 8)
+    }
+    for(j in 1:length(predict_directions_noise)){
+      predict_directions_noise[j] <- ifelse(
+        predict_directions_noise[j] <= 0.5,
                                       4, 8)
     }
     
     # add the predictions to the data frame
-    results_new <- tibble(density = dat_test$density,
-                          directions = dat_test$directions,
-                          density_pred = predict_density[, 1],
-                          directions_pred = predict_directions,
-                          fold = i)
+    results_new_clean <- tibble(density = dat_test_clean$density,
+                          directions = dat_test_clean$directions,
+                          density_pred = 
+                            predict_density_clean[, 1],
+                          directions_pred =
+                            predict_directions_clean,
+                          fold = i,
+                          noise = 'clean')
+    results_new_noise <- tibble(density = dat_test_clean$density,
+                                directions = dat_test_clean$directions,
+                                density_pred =
+                                  predict_density_noise[, 1],
+                                directions_pred = 
+                                  predict_directions_clean,
+                                fold = i,
+                                noise = 'noise')
     results_df <- results_df %>%
-      add_row(results_new)
+      add_row(results_new_clean) %>%
+      add_row(results_new_noise)
   }
   # correct back to 4 and 8 directions
   results_df <- results_df %>%
@@ -141,12 +158,14 @@ Compute the errors:
 ```{r}
 FireComputeErrors <- function(predictions,
                               sample_size, sample_method,
-                              summarise_runs, noise, datapoints){
+                              summarise_runs, datapoints){
   # predictions: dataframe with results from fitting
   # requires the columns density, density_pred,
   # directions, directions_pred
   
-  # sample_size, sample_method, summarise_runs, noie, datapoints: experiment info to be added to output data row
+  # sample_size, sample_method, summarise_runs, datapoints: experiment info to be added to output data row
+  
+  noise_levels <- unique(predictions$noise)
   
   # to store results
   errors <- tibble(perc_correct_params = numeric(),
@@ -159,77 +178,85 @@ FireComputeErrors <- function(predictions,
                    directions_kappa = numeric(),
                    directions_f1 = numeric(),
                    directions_mcc = numeric(),
-                   fold = numeric())
+                   fold = numeric(),
+                   noise = character())
   
-  # for each fold
-  for(i in 1:5){
-    # retrieve correct rows
-    dat <- predictions %>%
-      filter(fold == i)
+  for(j in noise_levels){
+    dat_noise <- predictions %>%
+      filter(noise == j)
+    # for each fold
+    for(i in 1:5){
+      # retrieve correct rows
+      dat <- dat_noise %>%
+        filter(fold == i)
+      
+      # compute mean density in training data
+      mean_density <- predictions %>%
+        filter(fold != i) %>%
+        summarise(mean(density))
+      
+      # compute errors
+      errors_new <- dat %>%
+        # % correctly predicted direction + density in test set
+        summarise(perc_correct_params = sum(
+          directions == directions_pred &
+            density == round(density_pred)) / nrow(dat) * 100,
+        # % correctly predicted density in test set
+        perc_density_correct = sum(density == round(density_pred)) /
+                  nrow(dat) * 100,
+        # % correctly predicted direction in test set
+        perc_directions_correct = sum(directions == directions_pred) /
+                  nrow(dat) * 100,
+        # % predicted density within 10% of true density in test set
+        perc_correct_cat_density = sum(density_pred >= density - 5 &
+                                         density_pred <= density + 5) /
+                                          nrow(dat) * 100,
+        # RMSE of predicted vs. true density
+        RMSE_density = sqrt(sum((density_pred - density)^2))
+                / nrow(dat),
+        # NRMSE of predicted vs. true density
+        NRMSE_density = (sqrt(sum((density_pred - density)^2))
+                                 / nrow(dat)) / sd(density),
+        # point prediction performance for density
+        point_pred_performance_density = 1 - 
+                  sum(sqrt((density_pred - density)^2)) /
+                  sum(sqrt((density - mean_density)^2)))
     
-    # compute mean density in training data
-    mean_density <- predictions %>%
-      filter(fold != i) %>%
-      summarise(mean(density))
+      # add columns for the metrics for directions
+      errors_new$directions_kappa <- NA
+      errors_new$directions_f1 <- NA
+      errors_new$directions_mcc <- NA
     
-    # compute errors
-    errors_new <- dat %>%
-      # % correctly predicted direction + density in test set
-      summarise(perc_correct_params = sum(
-        directions == directions_pred &
-          density == round(density_pred)) / nrow(dat) * 100,
-      # % correctly predicted density in test set
-      perc_density_correct = sum(density == round(density_pred)) /
-                nrow(dat) * 100,
-      # % correctly predicted direction in test set
-      perc_directions_correct = sum(directions == directions_pred) /
-                nrow(dat) * 100,
-      # % predicted density within 10% of true density in test set
-      perc_correct_cat_density = sum(density_pred >= density - 5 &
-                                       density_pred <= density + 5) /
-                                        nrow(dat) * 100,
-      # RMSE of predicted vs. true density
-      RMSE_density = sqrt(sum((density_pred - density)^2))
-              / nrow(dat),
-      # NRMSE of predicted vs. true density
-      NRMSE_density = (sqrt(sum((density_pred - density)^2))
-                               / nrow(dat)) / sd(density),
-      # point prediction performance for density
-      point_pred_performance_density = 1 - 
-                sum(sqrt((density_pred - density)^2)) /
-                sum(sqrt((density - mean_density)^2)))
-  
-    # add columns for the metrics for directions
-    errors_new$directions_kappa <- NA
-    errors_new$directions_f1 <- NA
-    errors_new$directions_mcc <- NA
-  
-    # add the error measures for the directions
-    # compute confusion matrix
-    cm <- confusionMatrix(as.factor(predictions$directions_pred),
-                          as.factor(predictions$directions),
-                          mode = 'everything')
-    # retrieve kappa, F1, and MCC
-    errors_new$directions_kappa = cm$overall[2]
-    errors_new$directions_f1 = cm$byClass[7]
-    errors_new$directions_mcc = mcc(as.factor(predictions$directions_pred),
-                                as.factor(predictions$directions))
-    
-    # add fold & add to errors data frame
-    errors_new$fold <- i
-    errors <- errors %>%
-      add_row(errors_new)
+      # add the error measures for the directions
+      # compute confusion matrix
+      cm <- confusionMatrix(as.factor(dat_noise$directions_pred),
+                            as.factor(dat_noise$directions),
+                            mode = 'everything')
+      # retrieve kappa, F1, and MCC
+      errors_new$directions_kappa = cm$overall[2]
+      errors_new$directions_f1 = cm$byClass[7]
+      errors_new$directions_mcc =
+        mcc(as.factor(dat_noise$directions_pred),
+                                  as.factor(dat_noise$directions))
+      
+      # add fold and noise levels & add to errors data frame
+      errors_new$fold <- i
+      errors_new$noise <- j
+      errors <- errors %>%
+        add_row(errors_new)
+    }
   }
+  
   
   # compute the mean statistics for each fold
   errors <- errors %>%
+    group_by(noise) %>%
     summarise_all(mean) %>%
     select(- fold) %>%
     # add the experiment info to the df
     add_column(sample_size = sample_size,
                sample_method = sample_method,
                summarise_runs = summarise_runs,
-               noise = noise,
                datapoints = datapoints)
   
   # return data row
@@ -272,7 +299,7 @@ Run for each combination:
 
 time steps, not summarised
 ```{r}
-# time steps, not summarised, data without noise
+# time steps, not summarised
 data_time_full_clean <- fire_training %>%
   filter(datapoints == 'timesteps',
          summarise_runs == 'full') %>%
@@ -281,21 +308,6 @@ data_time_full_clean <- fire_training %>%
   pivot_wider(names_from = time_label,
               values_from = burn_percentage)
 
-fit_data_time_full_clean <-
-  FireSimpleRegressionFitting(data_time_full_clean,
-                              data_noise = NA)
-errors_data_time_full_clean <- 
-  FireComputeErrors(fit_data_time_full_clean,
-                    sample_size = 198,
-                    sample_method = 'full',
-                    summarise_runs = 'full',
-                    noise = 'clean',
-                    datapoints = 'timepoints')
-
-# dataframe to store all errors
-errors <- errors_data_time_full_clean
-
-# time steps, not summarised, data with output noise
 data_time_full_outputnoise <- fire_training %>%
   filter(datapoints == 'timesteps',
          summarise_runs == 'full') %>%
@@ -305,25 +317,24 @@ data_time_full_outputnoise <- fire_training %>%
   pivot_wider(names_from = time_label,
               values_from = burn_percentage_noise)
 
-fit_data_time_full_outputnoise <- 
+fit_data_time_full <-
   FireSimpleRegressionFitting(data_time_full_clean,
                               data_noise = data_time_full_outputnoise)
 
-errors_data_time_full_outputnoise <- 
-  FireComputeErrors(fit_data_time_full_outputnoise,
+errors_data_time_full <- 
+  FireComputeErrors(fit_data_time_full,
                     sample_size = 198,
                     sample_method = 'full',
                     summarise_runs = 'full',
-                    noise = 'output noise',
                     datapoints = 'timepoints')
 
-errors <- errors %>%
-  add_row(errors_data_time_full_outputnoise)
+# dataframe to store all errors
+errors <- errors_data_time_full
 ```
 
 time steps, summarised
 ```{r}
-# time steps, summarised, data without noise
+# time steps, summarised
 data_time_sum_clean <- fire_training %>%
   filter(datapoints == 'timesteps',
          summarise_runs == 'summarised') %>%
@@ -332,21 +343,6 @@ data_time_sum_clean <- fire_training %>%
   pivot_wider(names_from = time_label,
               values_from = burn_percentage)
 
-fit_data_time_sum_clean <-
-  FireSimpleRegressionFitting(data_time_sum_clean,
-                              data_noise = NA)
-errors_data_time_sum_clean <- 
-  FireComputeErrors(fit_data_time_sum_clean,
-                    sample_size = 198,
-                    sample_method = 'full',
-                    summarise_runs = 'summarised',
-                    noise = 'clean',
-                    datapoints = 'timepoints')
-
-errors <- errors %>%
-  add_row(errors_data_time_sum_clean)
-
-# time steps, summarised, data with output noise
 data_time_sum_outputnoise <- fire_training %>%
   filter(datapoints == 'timesteps',
          summarise_runs == 'summarised') %>%
@@ -356,25 +352,23 @@ data_time_sum_outputnoise <- fire_training %>%
   pivot_wider(names_from = time_label,
               values_from = burn_percentage_noise)
 
-fit_data_time_sum_outputnoise <- 
+fit_data_time_sum <-
   FireSimpleRegressionFitting(data_time_sum_clean,
                               data_noise = data_time_sum_outputnoise)
-
-errors_data_time_sum_outputnoise <- 
-  FireComputeErrors(fit_data_time_sum_outputnoise,
+errors_data_time_sum <- 
+  FireComputeErrors(fit_data_time_sum,
                     sample_size = 198,
                     sample_method = 'full',
                     summarise_runs = 'summarised',
-                    noise = 'output noise',
                     datapoints = 'timepoints')
 
 errors <- errors %>%
-  add_row(errors_data_time_sum_outputnoise)
+  add_row(errors_data_time_sum)
 ```
 
 endpoints, not summarised
 ```{r}
-# endpoints, not summarised, data without noise
+# endpoints, not summarised
 data_end_full_clean <- fire_training %>%
   filter(datapoints == 'endpoints',
          summarise_runs == 'full') %>%
@@ -383,21 +377,6 @@ data_end_full_clean <- fire_training %>%
   pivot_wider(names_from = time_label,
               values_from = burn_percentage)
 
-fit_data_end_full_clean <-
-  FireSimpleRegressionFitting(data_end_full_clean,
-                              data_noise = NA)
-errors_data_end_full_clean <- 
-  FireComputeErrors(fit_data_end_full_clean,
-                    sample_size = 198,
-                    sample_method = 'full',
-                    summarise_runs = 'full',
-                    noise = 'clean',
-                    datapoints = 'endpoints')
-
-errors <- errors %>%
-  add_row(errors_data_end_full_clean)
-
-# endpoints, not summarised, data with output noise
 data_end_full_outputnoise <- fire_training %>%
   filter(datapoints == 'endpoints',
          summarise_runs == 'full') %>%
@@ -406,24 +385,24 @@ data_end_full_outputnoise <- fire_training %>%
   pivot_wider(names_from = time_label,
               values_from = burn_percentage_noise)
 
-fit_data_end_full_outputnoise <-
+fit_data_end_full <-
   FireSimpleRegressionFitting(data_end_full_clean,
-                              data_end_full_outputnoise)
-errors_data_end_full_outputnoise <- 
-  FireComputeErrors(fit_data_end_full_outputnoise,
+                              data_noise = data_end_full_outputnoise)
+
+errors_data_end_full <- 
+  FireComputeErrors(fit_data_end_full,
                     sample_size = 198,
                     sample_method = 'full',
                     summarise_runs = 'full',
-                    noise = 'output noise',
                     datapoints = 'endpoints')
 
 errors <- errors %>%
-  add_row(errors_data_end_full_outputnoise)
+  add_row(errors_data_end_full)
 ```
 
 endpoints, summarised
 ```{r}
-# endpoints, summarised, data without noise
+# endpoints, summarised
 data_end_sum_clean <- fire_training %>%
   filter(datapoints == 'endpoints',
          summarise_runs == 'summarised') %>%
@@ -432,21 +411,6 @@ data_end_sum_clean <- fire_training %>%
   pivot_wider(names_from = time_label,
               values_from = burn_percentage)
 
-fit_data_end_sum_clean <-
-  FireSimpleRegressionFitting(data_end_sum_clean,
-                              data_noise = NA)
-errors_data_end_sum_clean <- 
-  FireComputeErrors(fit_data_end_sum_clean,
-                    sample_size = 198,
-                    sample_method = 'full',
-                    summarise_runs = 'summarised',
-                    noise = 'clean',
-                    datapoints = 'endpoints')
-
-errors <- errors %>%
-  add_row(errors_data_end_sum_clean)
-
-# endpoints, summarised, data with output noise
 data_end_sum_outputnoise <- fire_training %>%
   filter(datapoints == 'endpoints',
          summarise_runs == 'summarised') %>%
@@ -455,19 +419,18 @@ data_end_sum_outputnoise <- fire_training %>%
   pivot_wider(names_from = time_label,
               values_from = burn_percentage_noise)
 
-fit_data_end_sum_outputnoise <-
+fit_data_end_sum <-
   FireSimpleRegressionFitting(data_end_sum_clean,
-                              data_end_sum_outputnoise)
-errors_data_end_sum_outputnoise <- 
-  FireComputeErrors(fit_data_end_sum_outputnoise,
+                              data_noise = data_end_sum_outputnoise)
+errors_data_end_sum <- 
+  FireComputeErrors(fit_data_end_sum,
                     sample_size = 198,
                     sample_method = 'full',
                     summarise_runs = 'summarised',
-                    noise = 'output noise',
                     datapoints = 'endpoints')
 
 errors <- errors %>%
-  add_row(errors_data_end_sum_outputnoise)
+  add_row(errors_data_end_sum)
 ```
 
 Save results:
