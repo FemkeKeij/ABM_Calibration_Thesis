@@ -139,7 +139,7 @@ FireSimpleRegressionFitting <- function(data_clean,
                                 density_pred =
                                   predict_density_noise[, 1],
                                 directions_pred = 
-                                  predict_directions_clean,
+                                  predict_directions_noise,
                                 fold = i,
                                 noise = 'noise')
     results_df <- results_df %>%
