@@ -40,20 +40,7 @@ fire_training <- read_csv('data/training/fire_training.csv')
 ```
 
 # Fitting
-Fit a linear regression to predict density and a logistic regression to predict directions. We use 5-fold cross-validation to assess predictive performance.
-
-There are multiple versions here:
-- full time series, 10 timesteps, 20 timesteps, endpoints only (I'm leaving out the 50 timesteps here since the simulations are mostly too short for that)
-- runs summarised or not
-- data without noise, data with output noise, data with output and temporal noise
-There are no variations with different sample sizes or sampling methods here, since I sampled the full parameter space for this model.
-
-To perform:
-1) select relevant sample size, sampling method, summarisation of runs, noise, and type of datapoints
-2) select relevant data columns, include combination_number, ticks, outputs, and input parameters
-3) pivot wider to make each time step a column
-4) feed to fitting function
-
+A function to fit a simple linear regression for the density parameter and a logistic regression for the directions parameter, using 5-fold cross-validation.
 ```{r}
 FireSimpleRegressionFitting <- function(data_clean,
                                         data_noise){
@@ -154,7 +141,7 @@ FireSimpleRegressionFitting <- function(data_clean,
 }
 ```
 
-Compute the errors:
+A function to compute the errors made by the simple linear and logistic regressions:
 ```{r}
 FireComputeErrors <- function(predictions,
                               sample_size, sample_method,
@@ -181,10 +168,12 @@ FireComputeErrors <- function(predictions,
                    fold = numeric(),
                    noise = character())
   
+  # for each noise level in the data (clean & output)
   for(j in noise_levels){
+    # retrieve data with appropriate noise level
     dat_noise <- predictions %>%
       filter(noise == j)
-    # for each fold
+    # for each of the 5 folds
     for(i in 1:5){
       # retrieve correct rows
       dat <- dat_noise %>%
@@ -264,66 +253,47 @@ FireComputeErrors <- function(predictions,
 }
 ```
 
-Function to fill out data so that each simulation has the same length of time series: (the final simulation value is copied to all other timesteps after)
-```{r}
-FillOutData <- function(data){
-  # check if any are missing the first time step (can happen in the noise case)
-  if(any(is.na(data[, 7]))){
-    # add value from second timepoint
-    for(j in 1:nrow(data)){
-      if(is.na(data[j, 7])){
-        data[j, 7] <- data[j, 8]
-      }
-    }
-  }
-  
-  # for each burn_percentage timestep column
-  for(i in 7:ncol(data)){
-    # go through each row
-    for(j in 1:nrow(data)){
-      # if the value is NA (because simulation stopped earlier)
-      if(is.na(data[j, i])){
-        # copy value from previous column
-        data[j, i] <- data[j, i - 1]
-      }
-    }
-  }
-  return(data)
-}
-```
-
-Run for each combination:
+Now run these functions for each data combination. In this case:
 - endpoints only, time steps version here: endpoint, middle point, total number of ticks, mean, min, max, sd, trend
 - runs summarised or not
-- data without noise, data with output noise, data with output and temporal noise
+- data without noise, data with output noise (no temporal noise for this ABM)
+There are no variations with different sample sizes or sampling methods here, since I sampled the full parameter space for this model. The 10, 20, and 50 timesteps are excluded due to collinearity issues.
 
-time steps, not summarised
+Timesteps, not summarised
 ```{r}
-# time steps, not summarised
+# retrieve timesteps, non-summarised
 data_time_full_clean <- fire_training %>%
   filter(datapoints == 'timesteps',
          summarise_runs == 'full') %>%
+  # select relevant variables
   select(time_label, density, directions, burn_percentage, total_ticks,
          mean_burn, sd_burn, trend_burn) %>%
+  # switch to wide format so that each timestep is a
+  # column (formatted for regression function)
   pivot_wider(names_from = time_label,
               values_from = burn_percentage)
 
+# similar but select noie variables
 data_time_full_outputnoise <- fire_training %>%
   filter(datapoints == 'timesteps',
          summarise_runs == 'full') %>%
   select(time_label, density, directions, burn_percentage_noise,
          total_ticks, mean_burn_noise,
          trend_burn_noise, sd_burn_noise) %>%
+  # rename so that these can be passed to the regression
+  # fitted on the non-noise data
   rename(mean_burn = mean_burn_noise,
          sd_burn = sd_burn_noise,
          trend_burn = trend_burn_noise) %>%
   pivot_wider(names_from = time_label,
               values_from = burn_percentage_noise)
 
+# fit regressions
 fit_data_time_full <-
   FireSimpleRegressionFitting(data_time_full_clean,
                               data_noise = data_time_full_outputnoise)
 
+# compute errors
 errors_data_time_full <- 
   FireComputeErrors(fit_data_time_full,
                     sample_size = 198,
@@ -335,9 +305,8 @@ errors_data_time_full <-
 errors <- errors_data_time_full
 ```
 
-time steps, summarised
+Timesteps, summarised
 ```{r}
-# time steps, summarised
 data_time_sum_clean <- fire_training %>%
   filter(datapoints == 'timesteps',
          summarise_runs == 'summarised') %>%
@@ -372,9 +341,8 @@ errors <- errors %>%
   add_row(errors_data_time_sum)
 ```
 
-endpoints, not summarised
+Endpoints, not summarised
 ```{r}
-# endpoints, not summarised
 data_end_full_clean <- fire_training %>%
   filter(datapoints == 'endpoints',
          summarise_runs == 'full') %>%
@@ -409,9 +377,8 @@ errors <- errors %>%
   add_row(errors_data_end_full)
 ```
 
-endpoints, summarised
+Endpoints, summarised
 ```{r}
-# endpoints, summarised
 data_end_sum_clean <- fire_training %>%
   filter(datapoints == 'endpoints',
          summarise_runs == 'summarised') %>%

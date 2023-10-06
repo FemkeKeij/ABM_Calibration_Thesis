@@ -533,6 +533,13 @@ WSComputeErrors <- function(predictions,
 }
 ```
 
+Now fit regressions for all data combinations:
+- endpoints only, full time series, timesteps every 10, 20, or 50 ticks
+- runs summarised or not
+- data without noise, data with output noise, data with output and temporal noise
+- random vs. LHS sampling
+- 1250, 5000, vs. 10000 samples
+
 Endpoints only:
 ```{r}
 # not summarised
