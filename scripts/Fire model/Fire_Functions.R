@@ -5,156 +5,114 @@ library(mltools)
 
 ##--------------- COMPUTE ERRORS -------------------##
 # function to calculate errors for the fire model
-ComputeErrors <- function(predictions, fold,
-                          mean_density){
+FireComputeErrors <- function(predictions,
+                              sample_size, sample_method,
+                              summarise_runs, datapoints){
   # predictions: dataframe with results from fitting
-  # requires the columns density_true, density_pred,
-  # directions_true, directions_pred
-  # fold: CV fold for which to compute errors
-  # mean_density: mean density in training data
+  # requires the columns density, density_pred,
+  # directions, directions_pred
   
-  # compute errors
-  errors <- predictions %>% 
-    # % correctly predicted direction + density in test set
-    summarise(perc_correct_params = sum(directions_true == directions_pred &
-                                          density_true == density_pred),
-              # % correctly predicted density in test set
-              perc_density_correct = sum(density_true == round(density_pred)) /
-                nrow(fire_test),
-              # % correctly predicted direction in test set
-              perc_direction_correct = sum(directions_true == directions_pred) /
-                nrow(fire_test),
-              # % predicted density within 10% of true density in test set
-              perc_correct_cat_density = sum(density_pred >=
-                                               density_true - 5 &
-                                               density_pred <=
-                                               density_true + 5) /
-                nrow(fire_test),
-              # RMSE of predicted vs. true density
-              RMSE_density = sqrt(sum((density_pred - density_true)^2))
-              / nrow(fire_test),
-              # NRMSE of predicted vs. true density
-              NRMSE_density = (sqrt(sum((density_pred - density_true)^2))
-                               / nrow(fire_test)) / sd(density_true),
-              # RMSE of predicted vs. true burn percentage
-              #RMSE_burn = sqrt(sum((burn_pred - burn_true)^2))
-              #/ nrow(fire_test),
-              # NRMSE of predicted vs. true burn percentage
-              #NRMSE_burn = (sqrt(sum((burn_pred - burn_true)^2))
-              #              / nrow(fire_test)) / sd(density_true),
-              # point prediction performance for density
-              point_pred_performance_density = 1 - 
-                sum(sqrt((density_pred - density_true)^2)) /
-                sum(sqrt((density_true - mean_density)^2)))
+  # sample_size, sample_method, summarise_runs, datapoints: experiment info to be added to output data row
   
-  # add columns for the metrics for directions
-  errors$directions_kappa <- NA
-  errors$directions_f1 <- NA
-  errors$directions_mcc <- NA
+  noise_levels <- unique(predictions$noise)
   
-  # add the error measures for the directions
-  # compute confusion matrix
-  cm <- confusionMatrix(as.factor(predictions$directions_pred),
-                        as.factor(predictions$directions_true),
-                        mode = 'everything')
-  # retrieve kappa, F1, and MCC
-  errors$directions_kappa = cm$overall[2]
-  errors$directions_f1 = cm$byClass[7]
-  errors$directions_mcc = mcc(as.factor(predictions$directions_pred),
-                                as.factor(predictions$directions_true))
+  # to store results
+  errors <- tibble(perc_correct_params = numeric(),
+                   perc_density_correct = numeric(),
+                   perc_directions_correct = numeric(),
+                   perc_correct_cat_density = numeric(),
+                   RMSE_density = numeric(),
+                   NRMSE_density = numeric(),
+                   point_pred_performance_density = numeric(),
+                   directions_kappa = numeric(),
+                   directions_f1 = numeric(),
+                   directions_mcc = numeric(),
+                   fold = numeric(),
+                   noise = character())
   
-  # add info on CV fold
-  errors$fold <- fold
+  # for each noise level in the data (clean & output)
+  for(j in noise_levels){
+    # retrieve data with appropriate noise level
+    dat_noise <- predictions %>%
+      filter(noise == j)
+    # for each of the 5 folds
+    for(i in 1:5){
+      # retrieve correct rows
+      dat <- dat_noise %>%
+        filter(fold == i)
+      
+      # compute mean density in training data
+      mean_density <- predictions %>%
+        filter(fold != i) %>%
+        summarise(mean(density))
+      
+      # compute errors
+      errors_new <- dat %>%
+        # % correctly predicted direction + density in test set
+        summarise(perc_correct_params = sum(
+          directions == directions_pred &
+            density == round(density_pred)) / nrow(dat) * 100,
+          # % correctly predicted density in test set
+          perc_density_correct = sum(density == round(density_pred)) /
+            nrow(dat) * 100,
+          # % correctly predicted direction in test set
+          perc_directions_correct = sum(directions == directions_pred) /
+            nrow(dat) * 100,
+          # % predicted density within 10% of true density in test set
+          perc_correct_cat_density = sum(density_pred >= density - 5 &
+                                           density_pred <= density + 5) /
+            nrow(dat) * 100,
+          # RMSE of predicted vs. true density
+          RMSE_density = sqrt(sum((density_pred - density)^2))
+          / nrow(dat),
+          # NRMSE of predicted vs. true density
+          NRMSE_density = (sqrt(sum((density_pred - density)^2))
+                           / nrow(dat)) / sd(density),
+          # point prediction performance for density
+          point_pred_performance_density = 1 - 
+            sum(sqrt((density_pred - density)^2)) /
+            sum(sqrt((density - mean_density)^2)))
+      
+      # add columns for the metrics for directions
+      errors_new$directions_kappa <- NA
+      errors_new$directions_f1 <- NA
+      errors_new$directions_mcc <- NA
+      
+      # add the error measures for the directions
+      # compute confusion matrix
+      cm <- confusionMatrix(as.factor(dat_noise$directions_pred),
+                            as.factor(dat_noise$directions),
+                            mode = 'everything')
+      # retrieve kappa, F1, and MCC
+      errors_new$directions_kappa = cm$overall[2]
+      errors_new$directions_f1 = cm$byClass[7]
+      errors_new$directions_mcc =
+        mcc(as.factor(dat_noise$directions_pred),
+            as.factor(dat_noise$directions))
+      
+      # add fold and noise levels & add to errors data frame
+      errors_new$fold <- i
+      errors_new$noise <- j
+      errors <- errors %>%
+        add_row(errors_new)
+    }
+  }
+  
+  
+  # compute the mean statistics for each fold
+  errors <- errors %>%
+    group_by(noise) %>%
+    summarise_all(mean) %>%
+    select(- fold) %>%
+    # add the experiment info to the df
+    add_column(sample_size = sample_size,
+               sample_method = sample_method,
+               summarise_runs = summarise_runs,
+               datapoints = datapoints)
   
   # return data row
   return(errors)
 }
-
-#ComputeErrors <- function(results, fits, ticks = FALSE,
-#                             density_means, pred_int_included = FALSE){
-  # results: dataframe with results from fitting
-  # density means: mean density in training data for each sample size
-  # pred_int_included: set to TRUE if fitting produced prediction interval for density
-  
-  # copy mean density to appropriate sample sizes
-#  errors <- merge(results, as_tibble(cbind(n, density_means)),
-       #           by = c('n')) %>%
-    # per sample size, summarise
-#    group_by(n) %>%
-              # % correctly predicted direction + density in test set
-#    summarise(perc_correct_params = sum(direction_true == direction_pred &
- #                                  density_true == round(density_pred))
-  #              / nrow(fire_test),
-   #           # % correctly predicted density in test set
-    #          perc_density_correct = sum(density_true ==
-     #                                      round(density_pred)) /
-      #          nrow(fire_test),
-              # % correctly predicted direction in test set
-       #       perc_direction_correct = sum(direction_true ==
-                #                             direction_pred) /
-        #        nrow(fire_test),
-              # % predicted density within 10% of true density in test set
-         #     perc_correct_cat_density = sum(density_pred >=
-          #                             density_true - 5 &
-           #                            density_pred <=
-            #                           density_true + 5) /
-             #   nrow(fire_test),
-              # RMSE of predicted vs. true density
-              #RMSE_density = sqrt(sum((density_pred - density_true)^2))
-               # / nrow(fire_test),
-              # NRMSE of predicted vs. true density
-              #NRMSE_density = (sqrt(sum((density_pred - density_true)^2))
-               #                / nrow(fire_test)) / sd(density_true),
-              # RMSE of predicted vs. true burn percentage
-              #RMSE_burn = sqrt(sum((burn_pred - burn_true)^2))
-               # / nrow(fire_test),
-              # NRMSE of predicted vs. true burn percentage
-              #NRMSE_burn = (sqrt(sum((burn_pred - burn_true)^2))
-               #             / nrow(fire_test)) / sd(density_true),
-              # point prediction performance for density
-              #point_pred_performance_density = 1 - 
-               # sum(sqrt((density_pred - density_true)^2)) /
-               # sum(sqrt((density_true - density_means)^2)))
-  
-  #errors$direction_kappa <- numeric(nrow(errors))
-  #errors$direction_f1 <- numeric(nrow(errors))
-  #errors$direction_mcc <- numeric(nrow(errors))
-  
-  # add the error measures for the directions
-  #for(i in 1:length(unique(results$n))){
-   # results_sub <- results %>%
-    #  filter(n == unique(results$n)[i])
-    
-    #cm <- confusionMatrix(as.factor(results_sub$direction_pred),
-     #                     as.factor(results_sub$direction_true),
-      #                    mode = 'everything')
-    
-    #errors$direction_kappa[i] = cm$overall[2]
-    #errors$direction_f1[i] = cm$byClass[7]
-    #errors$direction_mcc[i] = mcc(as.factor(results_sub$direction_pred),
-    #                              as.factor(results_sub$direction_true))
-  #}
-  
-  # if method produced prediction interval:
-  # compute coverage and add to output
-  #if(pred_int_included == TRUE){
-   # errors2 <- merge(results, as_tibble(cbind(n, density_means)),
-    #      by = c('n')) %>%
-     # group_by(n) %>%
-      #summarise(coverage_density = sum(density_true <= density_pred_upr &
-       #                          density_true >= density_pred_lwr) /
-        #nrow(fire_test))
-    #coverage_density <- errors2$coverage_density
-    
-    #errors <- cbind(errors, coverage_density)
-  #}
-  
-  # add indicator for ticks included yes or no
-  #errors$ticks_included <- if(ticks == TRUE){'yes'} else{'no'}
-  
-  # return data frame
-  #return(errors)
-#}
 
 ##--------------- PLOT ERRORS -------------------##
 # plot predicted vs. true density

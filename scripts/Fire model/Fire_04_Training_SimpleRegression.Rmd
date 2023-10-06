@@ -149,9 +149,10 @@ There are no variations with different sample sizes or sampling methods here, si
 
 Timesteps, not summarised
 ```{r}
-data_time_full_clean <- read_csv('data/training/fire_time_full_clean')
+data_time_full_clean <-
+  read_csv('data/training/fire_time_full_clean.csv')
 data_time_full_outputnoise <-
-  read_csv('data/training/fire_time_full_outputnoise')
+  read_csv('data/training/fire_time_full_outputnoise.csv')
 
 # fit regressions
 fit_data_time_full <-
