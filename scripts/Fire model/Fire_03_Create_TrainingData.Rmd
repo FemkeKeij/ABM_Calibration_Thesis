@@ -208,3 +208,131 @@ fire_training <- bind_rows(fire_summary_timesteps,
 fire_training %>%
   write_csv(file = 'data/training/fire_training.csv')
 ```
+
+# Differentiate
+```{r}
+fire_training <- read_csv('data/training/fire_training.csv')
+```
+
+Retrieve the different training data sets:
+- Timesteps, not summarised
+```{r}
+# retrieve timesteps, non-summarised
+data_time_full_clean <- fire_training %>%
+  filter(datapoints == 'timesteps',
+         summarise_runs == 'full') %>%
+  # select relevant variables
+  select(time_label, density, directions, burn_percentage, total_ticks,
+         mean_burn, sd_burn, trend_burn) %>%
+  # switch to wide format so that each timestep is a
+  # column (formatted for regression function)
+  pivot_wider(names_from = time_label,
+              values_from = burn_percentage)
+
+data_time_full_clean %>%
+  write_csv('data/training/fire_time_full_clean.csv')
+
+# similar but select noise variables
+data_time_full_outputnoise <- fire_training %>%
+  filter(datapoints == 'timesteps',
+         summarise_runs == 'full') %>%
+  select(time_label, density, directions, burn_percentage_noise,
+         total_ticks, mean_burn_noise,
+         trend_burn_noise, sd_burn_noise) %>%
+  # rename so that these can be passed to the regression
+  # fitted on the non-noise data
+  rename(mean_burn = mean_burn_noise,
+         sd_burn = sd_burn_noise,
+         trend_burn = trend_burn_noise) %>%
+  pivot_wider(names_from = time_label,
+              values_from = burn_percentage_noise)
+
+data_time_full_outputnoise %>%
+  write_csv('data/training/fire_time_full_outputnoise.csv')
+```
+
+Timesteps, summarised
+```{r}
+data_time_sum_clean <- fire_training %>%
+  filter(datapoints == 'timesteps',
+         summarise_runs == 'summarised') %>%
+  select(time_label, density, directions, burn_percentage, total_ticks,
+         mean_burn, sd_burn, trend_burn) %>%
+  pivot_wider(names_from = time_label,
+              values_from = burn_percentage)
+
+data_time_sum_clean %>%
+  write_csv('data/training/fire_time_sum_clean.csv')
+
+data_time_sum_outputnoise <- fire_training %>%
+  filter(datapoints == 'timesteps',
+         summarise_runs == 'summarised') %>%
+  select(time_label, density, directions, burn_percentage_noise,
+         total_ticks, mean_burn_noise,
+         sd_burn_noise, trend_burn_noise) %>%
+  rename(mean_burn = mean_burn_noise,
+         sd_burn = sd_burn_noise,
+         trend_burn = trend_burn_noise) %>%
+  pivot_wider(names_from = time_label,
+              values_from = burn_percentage_noise)
+
+data_time_sum_outputnoise %>%
+  write_csv('data/training/fire_time_sum_outputnoise.csv')
+```
+
+Endpoints, not summarised
+```{r}
+data_end_full_clean <- fire_training %>%
+  filter(datapoints == 'endpoints',
+         summarise_runs == 'full') %>%
+  select(time_label, density, directions, burn_percentage,
+         mean_burn, sd_burn, trend_burn) %>%
+  pivot_wider(names_from = time_label,
+              values_from = burn_percentage)
+
+data_end_full_clean %>%
+  write_csv('data/training/fire_end_full_clean.csv')
+
+data_end_full_outputnoise <- fire_training %>%
+  filter(datapoints == 'endpoints',
+         summarise_runs == 'full') %>%
+  select(time_label, density, directions, burn_percentage_noise,
+         mean_burn_noise, sd_burn_noise, trend_burn_noise) %>%
+  rename(mean_burn = mean_burn_noise,
+         sd_burn = sd_burn_noise,
+         trend_burn = trend_burn_noise) %>%
+  pivot_wider(names_from = time_label,
+              values_from = burn_percentage_noise)
+
+data_end_full_outputnoise %>%
+  write_csv('data/training/fire_end_full_outputnoise.csv')
+```
+
+Endpoints, summarised
+```{r}
+data_end_sum_clean <- fire_training %>%
+  filter(datapoints == 'endpoints',
+         summarise_runs == 'summarised') %>%
+  select(time_label, density, directions, burn_percentage,
+         mean_burn, sd_burn, trend_burn) %>%
+  pivot_wider(names_from = time_label,
+              values_from = burn_percentage)
+
+data_end_sum_clean %>%
+  write_csv('data/training/fire_end_sum_clean.csv')
+
+data_end_sum_outputnoise <- fire_training %>%
+  filter(datapoints == 'endpoints',
+         summarise_runs == 'summarised') %>%
+  select(time_label, density, directions, burn_percentage_noise,
+         mean_burn_noise,
+         sd_burn_noise, trend_burn_noise) %>%
+  rename(mean_burn = mean_burn_noise,
+         sd_burn = sd_burn_noise,
+         trend_burn = trend_burn_noise) %>%
+  pivot_wider(names_from = time_label,
+              values_from = burn_percentage_noise)
+
+data_end_sum_outputnoise %>%
+  write_csv('data/training/fire_end_sum_outputnoise.csv')
+```

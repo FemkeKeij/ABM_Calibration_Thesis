@@ -31,190 +31,216 @@ library(ggbeeswarm)
 library(pls)
 ```
 
-Source files for error computation and plotting functions:
+Read in the training data:
 ```{r}
-source('scripts/Fire model/Fire_ErrorFunctions.R')
+fire_training <- read_csv('data/training/fire_training.csv')
 ```
 
-Read in the data:
+Functions to compute and plot errors:
 ```{r}
-# complete output data
-fire_output <- read_csv('data/raw/fire_output.csv')
-
-# training data
-fire_train <- read_csv(
-  'data/processed/fire_train.csv')
-fire_train$directions <- as.factor(fire_train$directions)
-
-# test data
-fire_test <- read_csv(
-  'data/processed/fire_test.csv')
-fire_test$directions <- as.factor(fire_test$directions)
-```
-
-Random samples:
-5, 10, 20, 30, 40, 50, 60, 70, and 80 $%$ of the total parameter space.
-```{r}
-N <- nrow(fire_output)
-# range of (training) sample sizes to work with
-n <- c(0.05 * N, 0.1 * N, 0.2 * N, 0.3 * N, 0.4 * N, 0.5 * N,
-       0.6 * N, 0.7 * N, nrow(fire_train))
+source('scripts/Fire model/Fire_Functions.R')
 ```
 
 # Fitting
+A function to fit a Partial Least Squares for the density and direction parameters, using 5-fold cross-validation.
 ```{r}
-PLSfitting <- function(ticks = FALSE){
-  # table to store all output
-  length_tib <- sum(nrow(fire_test) * length(n))
-  pls_results <- tibble(direction_true = numeric(length_tib),
-                              direction_pred = numeric(length_tib),
-                              density_true = numeric(length_tib),
-                              density_pred = numeric(length_tib),
-                              burn_true = numeric(length_tib),
-                              burn_pred = numeric(length_tib),
-                              n = numeric(length_tib),
-                              ticks_included = numeric(length_tib))
-  # vector to store mean density in each training sample
-  # (to calculate point prediction performance later on)
-  density_means <- numeric(length(n))
-  # list to store fitted regression lines
-  pls_fits <- list()
+FirePLSFitting <- function(data_clean,
+                       data_noise){
+  # data_clean: the data frame containing the input parameters as well as the relevant outputs
+  # data_noise: supply data with noise here
+  
+  # create the folds
+  flds <- createFolds(1:nrow(data_clean),
+                      k = 5, list = TRUE, returnTrain = FALSE)
 
+  # to store the results
+  results_df <- tibble(density = numeric(),
+                       directions = numeric(),
+                       density_pred = numeric(),
+                       directions_pred = numeric(),
+                       noise = character(),
+                       fold = numeric())
+  
   count <- 1
   
-  # for each sample size
-  for(i in 1:length(n)){
-    # sample training set
-    ind_sample <- sample(1:nrow(fire_train), size = n[i])
-    fire_train_sub <- fire_train[ind_sample, ]
-    # calculate and save mean density in training set
-    density_means[i] <- mean(fire_train_sub$density)
-    # create dummy variables to use for directions
-    fire_use <- fire_train_sub %>%
-      mutate(true_four = ifelse(directions == '4', 1, 0),
-             true_eight = ifelse(directions == '8', 1, 0))
+  # create dummy variables to use for directions
+  data_clean <- data_clean %>%
+    mutate(true_four = ifelse(directions == '4', 1, 0),
+           true_eight = ifelse(directions == '8', 1, 0))
+  data_noise <- data_noise %>%
+    mutate(true_four = ifelse(directions == '4', 1, 0),
+           true_eight = ifelse(directions == '8', 1, 0))
+  
+  # for each cross-validation fold
+  for(i in 1:5){
+    # remove the test fold to create the training data
+    dat_train <- data_clean %>%
+      filter(!row_number() %in% unlist(flds[i]))
     
-    if(ticks == TRUE){
-      # partial least squares to predict density and directions with ticks
-      fit <- plsr(cbind(density, true_four, true_eight) ~
-                    burn_percentage + ticks,
-                  data = fire_use, validation = 'LOO',
-                  scale = TRUE)
-    } else{
-      # partial least squares to predict density and directions without ticks
-      fit <- plsr(cbind(density, true_four, true_eight) ~
-                    burn_percentage,
-                  data = fire_use, validation = 'LOO',
-                  scale = TRUE)
-    }
+    # obtain the test fold without noise
+    dat_test_clean <- data_clean %>%
+        filter(row_number() %in% unlist(flds[i]))
+    # obtain the test fold with noise
+    dat_test_noise <- data_noise %>%
+        filter(row_number() %in% unlist(flds[i]))
+    
+    # train the partial least squares
+    fit_pls <- plsr(cbind(density, true_four, true_eight) ~
+                      ., data = dat_train, validation = 'LOO',
+                    scale = TRUE)
+    
     # cross-validation to determine number of components
-    ncomp.cv <- crossval(fit)$ncomp
+    ncomp.cv <- crossval(fit_pls)$ncomp
     
-    # predict test data using fitted PLS
-    pred <- predict(fit, newdata = fire_test, ncomp = ncomp.cv)
-    predicted <- data.frame(density_pred = pred[, 1, 1],
-                   direction_four = pred[, 2, 1],
-                   direction_eight = pred[, 3, 1],
-                   direction_pred = numeric(nrow(pred)))
-
-    # correct the predicted directions
-    # to match test data
+    # predict the density & directions in the left-out fold without nois
+    predict_pls_clean <- predict(fit_pls,
+                                 newdata = dat_test_clean,
+                                 ncomp = ncomp.cv)
     # the predictions for the dummy variables can be interpreted
     # as class probabilities
-    for(k in 1:nrow(fire_test)){
-      if(predicted$direction_four[k] > predicted$direction_eight[k]){
-        predicted$direction_pred[k] <- 4
-      } else{
-        predicted$direction_pred[k] <- 8
-      }
-    }
+    predict_pls_clean <- tibble(density_pred = 
+                                  predict_pls_clean[, 1, 1],
+                                direction_four =
+                                  predict_pls_clean[, 2, 1],
+                                direction_eight =
+                                  predict_pls_clean[, 3, 1]) %>%
+      mutate(direction_pred = ifelse(direction_four > direction_eight,
+                                     4, 8))
     
-    # for each instance of the test data
-    for(j in 1:nrow(fire_test)){
-      # find an instance in the training data that matches the directions
-      # and density
-      if(predicted$density_pred[j] < 1){
-        predicted$density_pred[j] <- 1
-      } else if (predicted$density_pred[j] > 99){
-        predicted$density_pred[j] <- 99
-      }
-        
-      ind <- which(fire_train$density == round(predicted$density_pred[j]) &
-                     fire_train$directions ==
-                     predicted$direction_pred[j])
-      if(length(ind) > 1){
-        ind <- sample(ind, size = 1)
-      }
-      # find predicted burn percentage based on training data
-      burn_pred <- fire_train$burn_percentage[ind]
-      
-      # store all results in table
-      pls_results$direction_true[count] <- fire_test$directions[j]
-      pls_results$direction_pred[count] <-
-        predicted$direction_pred[j]
-      pls_results$density_true[count] <- fire_test$density[j]
-      pls_results$density_pred[count] <- predicted$density[j]
-      pls_results$burn_true[count] <- fire_test$burn_percentage[j]
-      pls_results$burn_pred[count] <- burn_pred
-      pls_results$n[count] <- n[i]
-      pls_results$ticks_included[count] <- if(ticks){'yes'}else{'no'}
-      
-      count <- count + 1
-    }
-    # store regression fit
-    pls_fits <- append(pls_fits, fit)
+    # predict the density & directions in the left-out fold with noise
+    predict_pls_noise <- predict(fit_pls,
+                                 newdata = dat_test_noise,
+                                 ncomp = ncomp.cv)
     
-    print(c('finished fitting sample size ', n[i]))
+    predict_pls_noise <- tibble(density_pred = 
+                                  predict_pls_noise[, 1, 1],
+                                direction_four =
+                                  predict_pls_noise[, 2, 1],
+                                direction_eight =
+                                  predict_pls_noise[, 3, 1]) %>%
+      mutate(direction_pred = ifelse(direction_four > direction_eight,
+                                     4, 8))
+    
+    # add the predictions to the data frame
+    results_new_clean <- tibble(density = dat_test_clean$density,
+                          directions = dat_test_clean$directions,
+                          density_pred = 
+                            predict_pls_clean$density_pred,
+                          directions_pred = 
+                            predict_pls_clean$directions_pred,
+                          fold = i,
+                          noise = 'clean')
+    results_new_noise <- tibble(density = dat_test_clean$density,
+                                directions = dat_test_clean$directions,
+                                density_pred =
+                                  predict_pls_noise$density_pred,
+                                directions_pred = 
+                                  predict_pls_noise$directions_pred,
+                                fold = i,
+                                noise = 'noise')
+    results_df <- results_df %>%
+      add_row(results_new_clean) %>%
+      add_row(results_new_noise)
   }
   
-  # correct format of direction_true variable
-  pls_results %>%
-    mutate(direction_true = replace(direction_true, direction_true == 1, 4),
-         direction_true = replace(direction_true, direction_true == 2, 8)) ->
-    pls_results
-  
-  # return table with results, density means, and fitted regression lines
-  return(list(pls_results, density_means, pls_fits))
+  return(results_df)
 }
 ```
 
+Timesteps, not summarised
 ```{r}
-# fit PLS with ticks
-pls_results_ticks <- PLSfitting(ticks = TRUE)
-density_means_ticks <- pls_results_ticks[[2]]
-pls_fits_ticks <- pls_results_ticks[[3]]
-pls_results_ticks <- pls_results_ticks[[1]]
+data_time_full_clean <- read_csv('data/training/fire_time_full_clean')
+data_time_full_outputnoise <-
+  read_csv('data/training/fire_time_full_outputnoise')
 
-# fit PLS without ticks
-pls_results_noticks <- PLSfitting(ticks = FALSE)
-density_means_noticks <- pls_results_noticks[[2]]
-pls_fits_noticks <- pls_results_noticks[[3]]
-pls_results_noticks <- pls_results_noticks[[1]]
+# fit regressions
+fit_data_time_full <-
+  FirePLSFitting(data_time_full_clean,
+                 data_noise = data_time_full_outputnoise)
+
+# compute errors
+errors_data_time_full <- 
+  FireComputeErrors(fit_data_time_full,
+                    sample_size = 198,
+                    sample_method = 'full',
+                    summarise_runs = 'full',
+                    datapoints = 'timepoints')
+
+# dataframe to store all errors
+errors <- errors_data_time_full
 ```
 
+Timesteps, summarised
 ```{r}
-# run error calculations
-pls_errors_ticks <- ComputeErrors(pls_results_ticks,
-                                  ticks = TRUE,
-                                  density_means = density_means_ticks,
-                                  pred_int_included = FALSE)
-pls_errors_noticks <- ComputeErrors(pls_results_noticks,
-                                    ticks = FALSE,
-                                    density_means = density_means_noticks,
-                                    pred_int_included = FALSE)
+data_time_sum_clean <-
+  read_csv('data/training/fire_time_sum_clean.csv')
+data_time_sum_outputnoise <-
+  read_csv('data/training/fire_time_sum_outputnoise.csv')
+
+fit_data_time_sum <-
+  FirePLSFitting(data_time_sum_clean,
+                 data_noise = data_time_sum_outputnoise)
+
+errors_data_time_sum <- 
+  FireComputeErrors(fit_data_time_sum,
+                    sample_size = 198,
+                    sample_method = 'full',
+                    summarise_runs = 'summarised',
+                    datapoints = 'timepoints')
+
+errors <- errors %>%
+  add_row(errors_data_time_sum)
 ```
 
-Merge results
+Endpoints, not summarised
 ```{r}
-pls_results <- rbind(pls_results_noticks,
-                            pls_results_ticks)
-write_csv(pls_results,
-          'data/processed/fire_partialleastsquares_results.csv')
+data_end_full_clean <-
+  read_csv('data/training/fire_end_full_clean.csv')
+data_end_full_outputnoise <-
+  read_csv('data/training/fire_end_full_outputnoise.csv')
 
-pls_errors <- rbind(pls_errors_noticks, pls_errors_ticks)
-write_csv(pls_errors,
-          'data/processed/fire_partialleastsquares_errors.csv')
-``` 
+fit_data_end_full <-
+  FirePLSFitting(data_end_full_clean,
+                 data_noise = data_end_full_outputnoise)
+
+errors_data_end_full <- 
+  FireComputeErrors(fit_data_end_full,
+                    sample_size = 198,
+                    sample_method = 'full',
+                    summarise_runs = 'full',
+                    datapoints = 'endpoints')
+
+errors <- errors %>%
+  add_row(errors_data_end_full)
+```
+
+Endpoints, summarised
+```{r}
+data_end_sum_clean <- read_csv('data/training/fire_end_sum_clean.csv')
+data_end_sum_outputnoise <-
+  read_csv('data/training/fire_end_sum_outputnoise.csv')
+
+fit_data_end_sum <-
+  FirePLSFitting(data_end_sum_clean,
+                 data_noise = data_end_sum_outputnoise)
+
+errors_data_end_sum <- 
+  FireComputeErrors(fit_data_end_sum,
+                    sample_size = 198,
+                    sample_method = 'full',
+                    summarise_runs = 'summarised',
+                    datapoints = 'endpoints')
+
+errors <- errors %>%
+  add_row(errors_data_end_sum)
+```
+
+Save results:
+```{r}
+errors %>%
+  mutate(algorithm = 'PLS') %>%
+  write_csv(file = 'data/results/fire_pls_errors.csv')
+```
 
 # Plots
 ```{r}
