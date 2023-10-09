@@ -244,172 +244,19 @@ errors %>%
 # Plots
 % correctly predicted parameters (density & directions):
 ```{r}
-p1 <- errors %>%
-  ggplot(mapping = aes(x = noise, y = perc_correct_params,
-                       fill = summarise_runs)) +
-  geom_bar(stat = 'identity',
-           position = position_dodge()) +
-  labs(y = 'density and direction',
-       x = 'noise', fill = 'runs summarised') +
-  theme_minimal() +
-  theme(panel.grid.major.x = element_blank(),
-        panel.grid.minor.x = element_blank()) +
-  facet_grid(~ datapoints)
-
-p2 <- errors %>%
-  ggplot(mapping = aes(x = noise, y = perc_density_correct,
-                       fill = summarise_runs)) +
-  geom_bar(stat = 'identity',
-           position = position_dodge()) +
-  labs(x = 'noise',
-       y = 'tree density',
-       fill = 'runs summarised') +
-  theme_minimal() +
-  theme(panel.grid.major.x = element_blank(),
-        panel.grid.minor.x = element_blank()) +
-  facet_grid(~ datapoints)
-
-p3 <- errors %>%
-  ggplot(mapping = aes(x = noise, y = perc_directions_correct,
-                       fill = summarise_runs)) +
-  geom_bar(stat = 'identity',
-           position = position_dodge()) +
-  labs(x = 'noise',
-       y = 'directions',
-       fill = 'runs summarised') +
-  theme_minimal() +
-  theme(panel.grid.major.x = element_blank(),
-        panel.grid.minor.x = element_blank()) +
-  facet_grid(~ datapoints)
-
-p4 <- errors %>%
-  ggplot(mapping = aes(x = noise, y = perc_correct_cat_density,
-                       fill = summarise_runs)) +
-  geom_bar(stat = 'identity',
-           position = position_dodge()) +
-  labs(x = 'noise',
-       y = 'density within 10%',
-       fill = 'runs summarised') +
-  theme_minimal() +
-  theme(panel.grid.major.x = element_blank(),
-        panel.grid.minor.x = element_blank()) +
-  facet_grid(~ datapoints)
-  
-plot <- p1 + p2 + p3 + p4 +
-  plot_layout(guides = 'collect') +
-  plot_annotation(tag_levels = 'A',
-                  title = '% correctly predicted') &
-  theme(plot.tag = element_text(size = 8))
+plot1 <- PlotPercCorrectParams(errors)
 
 ggsave('figures/fire_regression_perc_correct.pdf')
 ```
 RMSE, NRMSE, point prediction performance, and coverage for density parameter:
 ```{r}
-p1 <- errors %>%
-  ggplot(mapping = aes(x = noise, y = RMSE_density,
-                       colour = summarise_runs)) +
-  geom_point(position = position_dodge(width = 0.5),
-             size = 3) +
-  geom_linerange(aes(x = noise, ymin = 0, ymax = RMSE_density,
-                     colour = summarise_runs),
-                 position = position_dodge(width = 0.5)) +
-  labs(colour = 'runs summarised',
-       y = 'RMSE tree density') +
-  theme_minimal() +
-  theme(panel.grid.major.x = element_blank(),
-        panel.grid.minor.x = element_blank()) +
-  facet_grid(~ datapoints)
-
-p2 <- errors %>%
-  ggplot(mapping = aes(x = noise, y = NRMSE_density,
-                       colour = summarise_runs)) +
-  geom_point(position = position_dodge(width = 0.5),
-             size = 3) +
-  geom_linerange(aes(x = noise, ymin = 0, ymax = NRMSE_density,
-                     colour = summarise_runs),
-                 position = position_dodge(width = 0.5)) +
-  labs(colour = 'runs summarised',
-       y = 'NRMSE tree density') +
-  theme_minimal() +
-  theme(panel.grid.major.x = element_blank(),
-        panel.grid.minor.x = element_blank()) +
-  facet_grid(~ datapoints)
-
-p3 <- errors %>%
-  ggplot(mapping = aes(x = noise, y = point_pred_performance_density,
-                       colour = summarise_runs)) +
-  geom_point(position = position_dodge(width = 0.5),
-             size = 3) +
-  geom_linerange(aes(x = noise, ymin = 0,
-                     ymax = point_pred_performance_density,
-                     colour = summarise_runs),
-                 position = position_dodge(width = 0.5)) +
-  labs(colour = 'runs summarised',
-       y = 'point prediction performance') +
-  theme_minimal() +
-  theme(panel.grid.major.x = element_blank(),
-        panel.grid.minor.x = element_blank()) +
-  facet_grid(~ datapoints)
-
-plot <- p1 + p2 + p3 +
-  plot_layout(guides = 'collect') +
-  plot_annotation(tag_levels = 'A') & 
-  theme(plot.tag = element_text(size = 8)) &
-  xlab(NULL)
+plot2 <- PlotErrorsDensity(errors)
 
 ggsave('figures/fire_regression_density_metrics.pdf')
 ```
 F1, kappa score, and MCC for directions:
 ```{r}
-p1 <- errors %>%
-  ggplot(mapping = aes(x = noise, y = directions_kappa,
-                       colour = summarise_runs)) +
-  geom_point(position = position_dodge(width = 0.5),
-             size = 3) +
-  geom_linerange(aes(x = noise, ymin = 0,
-                     ymax = directions_kappa,
-                     colour = summarise_runs),
-                 position = position_dodge(width = 0.5)) +
-  theme_minimal() +
-  theme(panel.grid.minor = element_blank()) +
-  labs(y = 'kappa', colour = 'runs summarised') +
-  facet_grid(~ datapoints)
-
-p2 <- errors %>%
-  ggplot(mapping = aes(x = noise, y = directions_f1,
-                       colour = summarise_runs)) +
-  geom_point(position = position_dodge(width = 0.5),
-             size = 3) +
-  geom_linerange(aes(x = noise, ymin = 0,
-                     ymax = directions_f1,
-                     colour = summarise_runs),
-                 position = position_dodge(width = 0.5)) +
-  theme_minimal() +
-  theme(panel.grid.minor = element_blank()) +
-  labs(y = 'F1 score', colour = 'runs summarised') +
-  lims(y = c(0, NA)) +
-  facet_grid(~ datapoints)
-
-p3 <- errors %>%
-  ggplot(mapping = aes(x = noise, y = directions_mcc,
-                       colour = summarise_runs)) +
-  geom_point(position = position_dodge(width = 0.5),
-             size = 3) +
-  geom_linerange(aes(x = noise, ymin = 0,
-                     ymax = directions_mcc,
-                     colour = summarise_runs),
-                 position = position_dodge(width = 0.5)) +
-  theme_minimal() +
-  theme(panel.grid.minor = element_blank()) +
-  labs(y = 'MCC', colour = 'runs summarised') +
-  lims(y = c(0, NA)) +
-  facet_grid(~ datapoints)
-
-plot <- p1 + p2 + p3 +
-  plot_layout(guides = 'collect') +
-  plot_annotation(tag_levels = 'A') &
-  theme(plot.tag = element_text(size = 8)) &
-  xlab(NULL)
+plot3 <- PlotErrorsDirections(errors)
 
 ggsave('figures/fire_regression_directions_metrics.pdf')
 ```

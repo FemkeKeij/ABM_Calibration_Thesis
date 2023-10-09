@@ -236,7 +236,6 @@ FirePLSFitting <- function(data_clean,
 }
 ```
 
-
 Timesteps, not summarised
 ```{r}
 data_time_full_clean <-
@@ -335,12 +334,34 @@ errors %>%
 
 # Plots
 ```{r}
+plot1 <- PlotPercCorrectParams(errors)
+
+ggsave('figures/fire_pls_perc_correct.pdf')
+```
+
+```{r}
+plot2 <- PlotErrorsDensity(errors)
+
+ggsave('figures/fire_pls_density.pdf')
+```
+
+```{r}
+plot3 <- PlotErrorsDirections(errors)
+
+ggsave('figures/fire_pls_directions.pdf')
+```
+
+################### -------- OLD CODE ------------- #################
+
+```{r}
 # pls_results <- read_csv('data/processed/fire_partialleastsquares_results.csv')
 
 # pls_errors <- read_csv('data/processed/fire_partialleastsquares_errors.csv')
 ```
 
 ## Errors
+
+
 Fix results and errors data frames:
 ```{r}
 pls_results <- pls_results %>%

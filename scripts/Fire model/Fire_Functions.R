@@ -220,150 +220,121 @@ PlotPredTrueBurn <- function(results, n_plot){
 }
 
 # % of correct predictions of the parameters
-PlotPercCorrectParams <- function(errors, n_plot){
+PlotPercCorrectParams <- function(errors){
   # errors: data frame with calculated error measures
-  # n_plot: sample sizes to plot (can be multiple)
   p1 <- errors %>%
-    filter(n %in% n_plot)%>%
-    ggplot(mapping = aes(x = n, y = perc_correct_params,
-                         fill = ticks_included)) +
+    ggplot(mapping = aes(x = noise, y = perc_correct_params,
+                         fill = summarise_runs)) +
     geom_bar(stat = 'identity',
              position = position_dodge()) +
-    labs(y = 'density & direction',
-         x = 'training sample size',
-         fill = 'Ticks included') +
+    labs(y = 'density and direction',
+         x = 'noise', fill = 'runs summarised') +
     theme_minimal() +
     theme(panel.grid.major.x = element_blank(),
-          panel.grid.minor.x = element_blank())
+          panel.grid.minor.x = element_blank()) +
+    facet_grid(~ datapoints)
   
   p2 <- errors %>%
-    filter(n %in% n_plot) %>%
-    ggplot(mapping = aes(x = n, y = perc_density_correct,
-                         fill = ticks_included)) +
+    ggplot(mapping = aes(x = noise, y = perc_density_correct,
+                         fill = summarise_runs)) +
     geom_bar(stat = 'identity',
              position = position_dodge()) +
-    labs(y = 'density',
-         x = 'training sample size',
-         fill = 'Ticks included') +
+    labs(x = 'noise',
+         y = 'tree density',
+         fill = 'runs summarised') +
     theme_minimal() +
     theme(panel.grid.major.x = element_blank(),
-          panel.grid.minor.x = element_blank())
+          panel.grid.minor.x = element_blank()) +
+    facet_grid(~ datapoints)
   
   p3 <- errors %>%
-    filter(n %in% n_plot) %>%
-    ggplot(mapping = aes(x = n, y = perc_direction_correct,
-                         fill = ticks_included)) +
+    ggplot(mapping = aes(x = noise, y = perc_directions_correct,
+                         fill = summarise_runs)) +
     geom_bar(stat = 'identity',
              position = position_dodge()) +
-    labs(y = 'direction',
-         x = 'training sample size',
-         fill = 'Ticks included') +
+    labs(x = 'noise',
+         y = 'directions',
+         fill = 'runs summarised') +
     theme_minimal() +
     theme(panel.grid.major.x = element_blank(),
-          panel.grid.minor.x = element_blank())
+          panel.grid.minor.x = element_blank()) +
+    facet_grid(~ datapoints)
   
   p4 <- errors %>%
-    filter(n %in% n_plot) %>%
-    ggplot(mapping = aes(x = n, y = perc_correct_cat_density,
-                         fill = ticks_included)) +
+    ggplot(mapping = aes(x = noise, y = perc_correct_cat_density,
+                         fill = summarise_runs)) +
     geom_bar(stat = 'identity',
              position = position_dodge()) +
-    labs(y = 'density within \n 10% of true density',
-         x = 'training sample size',
-         fill = 'Ticks included') +
+    labs(x = 'noise',
+         y = 'density within 10%',
+         fill = 'runs summarised') +
     theme_minimal() +
     theme(panel.grid.major.x = element_blank(),
-          panel.grid.minor.x = element_blank())
+          panel.grid.minor.x = element_blank()) +
+    facet_grid(~ datapoints)
   
   plot <- p1 + p2 + p3 + p4 +
     plot_layout(guides = 'collect') +
     plot_annotation(tag_levels = 'A',
-                    title = '% correctly predicted') & 
+                    title = '% correctly predicted') &
     theme(plot.tag = element_text(size = 8))
   
   return(plot)
 }
 
 # RMSE etc. of density
-PlotErrorsDensity <- function(errors, n_plot){
+PlotErrorsDensity <- function(errors){
   p1 <- errors %>%
-    filter(n %in% n_plot) %>%
-    ggplot(mapping = aes(x = n, y = RMSE_density,
-                         colour = ticks_included)) +
+    ggplot(mapping = aes(x = noise, y = RMSE_density,
+                         colour = summarise_runs)) +
     geom_point(position = position_dodge(width = 0.5),
                size = 3) +
-    geom_linerange(aes(x = n, ymin = 0, ymax = RMSE_density,
-                       colour = ticks_included),
+    geom_linerange(aes(x = noise, ymin = 0, ymax = RMSE_density,
+                       colour = summarise_runs),
                    position = position_dodge(width = 0.5)) +
-    labs(colour = 'Ticks included',
-         y = 'RMSE') +
+    labs(colour = 'runs summarised',
+         y = 'RMSE tree density') +
     theme_minimal() +
     theme(panel.grid.major.x = element_blank(),
-          panel.grid.minor.x = element_blank())
-
+          panel.grid.minor.x = element_blank()) +
+    facet_grid(~ datapoints)
+  
   p2 <- errors %>%
-    filter(n %in% n_plot) %>%
-    ggplot(mapping = aes(x = n, y = NRMSE_density,
-                         colour = ticks_included)) +
+    ggplot(mapping = aes(x = noise, y = NRMSE_density,
+                         colour = summarise_runs)) +
     geom_point(position = position_dodge(width = 0.5),
                size = 3) +
-    geom_linerange(aes(x = n, ymin = 0, ymax = NRMSE_density,
-                       colour = ticks_included),
+    geom_linerange(aes(x = noise, ymin = 0, ymax = NRMSE_density,
+                       colour = summarise_runs),
                    position = position_dodge(width = 0.5)) +
-    labs(colour = 'Ticks included',
-         y = 'NRMSE') +
+    labs(colour = 'runs summarised',
+         y = 'NRMSE tree density') +
     theme_minimal() +
     theme(panel.grid.major.x = element_blank(),
-          panel.grid.minor.x = element_blank())
+          panel.grid.minor.x = element_blank()) +
+    facet_grid(~ datapoints)
   
   p3 <- errors %>%
-    filter(n %in% n_plot) %>%
-    ggplot(mapping = aes(x = n, y = point_pred_performance_density,
-                         colour = ticks_included)) +
+    ggplot(mapping = aes(x = noise, y = point_pred_performance_density,
+                         colour = summarise_runs)) +
     geom_point(position = position_dodge(width = 0.5),
                size = 3) +
-    geom_linerange(aes(x = n, ymin = 0, ymax = point_pred_performance_density,
-                       colour = ticks_included),
+    geom_linerange(aes(x = noise, ymin = 0,
+                       ymax = point_pred_performance_density,
+                       colour = summarise_runs),
                    position = position_dodge(width = 0.5)) +
-    labs(colour = 'Ticks included',
+    labs(colour = 'runs summarised',
          y = 'point prediction performance') +
     theme_minimal() +
     theme(panel.grid.major.x = element_blank(),
-          panel.grid.minor.x = element_blank())
+          panel.grid.minor.x = element_blank()) +
+    facet_grid(~ datapoints)
   
-  # if the data includes a coverage measure, plot this
-  if('coverage_density' %in% colnames(errors)){
-    p4 <- errors %>%
-      filter(n %in% n_plot)%>%
-      ggplot(mapping = aes(x = n, y = coverage_density,
-                           colour = ticks_included)) +
-      lims(y = c(0.9, 1.0)) +
-      geom_hline(yintercept = 0.95,
-                 colour = 'light green') +
-      geom_beeswarm(size = 3) +
-      labs(x = 'training sample size',
-           y = 'coverage (95% \n prediction interval)') +
-      theme_minimal() +
-      theme(legend.position = 'none')
-    
-    patch <- p1 + p2 + p3 + p4 +
-      plot_layout(guides = 'collect') +
-      plot_annotation(tag_levels = 'A') & 
-      theme(plot.tag = element_text(size = 8)) &
-      xlab(NULL)
-    
-  } else{
-    patch <- p1 + p2 + p3 +
-      plot_layout(guides = 'collect') +
-      plot_annotation(tag_levels = 'A') & 
-      theme(plot.tag = element_text(size = 8)) &
-      xlab(NULL)
-  }
-  
-  plot <- wrap_elements(panel = patch) +
-    labs(tag = 'training sample size') +
-    theme(plot.tag = element_text(size = rel(1)),
-          plot.tag.position = 'bottom')
+  plot <- p1 + p2 + p3 +
+    plot_layout(guides = 'collect') +
+    plot_annotation(tag_levels = 'A') & 
+    theme(plot.tag = element_text(size = 8)) &
+    xlab(NULL)
   
   return(plot)
 }
@@ -371,59 +342,54 @@ PlotErrorsDensity <- function(errors, n_plot){
 # plot kappa score, F1 score, and MCC for directions
 PlotErrorsDirections <- function(errors, n_plot){
   p1 <- errors %>%
-    filter(n %in% n_plot) %>%
-    ggplot(mapping = aes(x = factor(n), y = direction_kappa,
-                         colour = ticks_included)) +
+    ggplot(mapping = aes(x = noise, y = directions_kappa,
+                         colour = summarise_runs)) +
     geom_point(position = position_dodge(width = 0.5),
                size = 3) +
-    geom_linerange(aes(x = factor(n), ymin = 0, ymax = direction_kappa,
-                       colour = ticks_included),
+    geom_linerange(aes(x = noise, ymin = 0,
+                       ymax = directions_kappa,
+                       colour = summarise_runs),
                    position = position_dodge(width = 0.5)) +
     theme_minimal() +
     theme(panel.grid.minor = element_blank()) +
-    labs(y = 'kappa',
-         colour = 'ticks included')
-
+    labs(y = 'kappa', colour = 'runs summarised') +
+    facet_grid(~ datapoints)
+  
   p2 <- errors %>%
-    filter(n %in% n_plot) %>%
-    ggplot(mapping = aes(x = factor(n), y = direction_f1,
-                         colour = ticks_included)) +
+    ggplot(mapping = aes(x = noise, y = directions_f1,
+                         colour = summarise_runs)) +
     geom_point(position = position_dodge(width = 0.5),
                size = 3) +
-    geom_linerange(aes(x = factor(n), ymin = 0, ymax = direction_f1,
-                       colour = ticks_included),
+    geom_linerange(aes(x = noise, ymin = 0,
+                       ymax = directions_f1,
+                       colour = summarise_runs),
                    position = position_dodge(width = 0.5)) +
     theme_minimal() +
     theme(panel.grid.minor = element_blank()) +
-    labs(y = 'F1 score',
-         colour = 'ticks included') +
-    lims(y = c(0, NA))
+    labs(y = 'F1 score', colour = 'runs summarised') +
+    lims(y = c(0, NA)) +
+    facet_grid(~ datapoints)
   
   p3 <- errors %>%
-    filter(n %in% n_plot) %>%
-    ggplot(mapping = aes(x = factor(n), y = direction_mcc,
-                         colour = ticks_included)) +
+    ggplot(mapping = aes(x = noise, y = directions_mcc,
+                         colour = summarise_runs)) +
     geom_point(position = position_dodge(width = 0.5),
                size = 3) +
-    geom_linerange(aes(x = factor(n), ymin = 0, ymax = direction_mcc,
-                       colour = ticks_included),
+    geom_linerange(aes(x = noise, ymin = 0,
+                       ymax = directions_mcc,
+                       colour = summarise_runs),
                    position = position_dodge(width = 0.5)) +
     theme_minimal() +
     theme(panel.grid.minor = element_blank()) +
-    labs(y = 'MCC',
-         colour = 'ticks included') +
-    lims(y = c(0, NA))
+    labs(y = 'MCC', colour = 'runs summarised') +
+    lims(y = c(0, NA)) +
+    facet_grid(~ datapoints)
   
-  patch <- p1 + p2 + p3 +
+  plot <- p1 + p2 + p3 +
     plot_layout(guides = 'collect') +
-    plot_annotation(tag_levels = 'A') & 
+    plot_annotation(tag_levels = 'A') &
     theme(plot.tag = element_text(size = 8)) &
     xlab(NULL)
-  
-  plot <- wrap_elements(panel = patch) +
-    labs(tag = 'training sample size') +
-    theme(plot.tag = element_text(size = rel(1)),
-          plot.tag.position = 'bottom')
   
   return(plot)
 }
