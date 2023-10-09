@@ -56,8 +56,6 @@ FirePLSFitting <- function(data_clean,
                        noise = character(),
                        fold = numeric())
   
-  count <- 1
-  
   # create dummy variables to use for directions
   data_clean <- data_clean %>%
     mutate(true_four = ifelse(directions == '4', 1, 0),
@@ -99,7 +97,7 @@ FirePLSFitting <- function(data_clean,
                                   predict_pls_clean[, 2, 1],
                                 direction_eight =
                                   predict_pls_clean[, 3, 1]) %>%
-      mutate(direction_pred = ifelse(direction_four > direction_eight,
+      mutate(directions_pred = ifelse(direction_four > direction_eight,
                                      4, 8))
     
     # predict the density & directions in the left-out fold with noise
@@ -113,7 +111,7 @@ FirePLSFitting <- function(data_clean,
                                   predict_pls_noise[, 2, 1],
                                 direction_eight =
                                   predict_pls_noise[, 3, 1]) %>%
-      mutate(direction_pred = ifelse(direction_four > direction_eight,
+      mutate(directions_pred = ifelse(direction_four > direction_eight,
                                      4, 8))
     
     # add the predictions to the data frame
@@ -141,6 +139,103 @@ FirePLSFitting <- function(data_clean,
   return(results_df)
 }
 ```
+
+```{r}
+FirePLSFitting <- function(data_clean,
+                       data_noise){
+  # data_clean: the data frame containing the input parameters as well as the relevant outputs
+  # data_noise: supply data with noise here
+  
+  # create the folds
+  flds <- createFolds(1:nrow(data_clean),
+                      k = 5, list = TRUE, returnTrain = FALSE)
+
+  # to store the results
+  results_df <- tibble(density = numeric(),
+                       directions = numeric(),
+                       density_pred = numeric(),
+                       directions_pred = numeric(),
+                       noise = character(),
+                       fold = numeric())
+  
+  # create dummy variables to use for directions
+  data_clean <- data_clean %>%
+    mutate(true_four = ifelse(directions == '4', 1, 0))
+  data_noise <- data_noise %>%
+    mutate(true_four = ifelse(directions == '4', 1, 0))
+  
+  # for each cross-validation fold
+  for(i in 1:5){
+    # remove the test fold to create the training data
+    dat_train <- data_clean %>%
+      filter(!row_number() %in% unlist(flds[i]))
+    
+    # obtain the test fold without noise
+    dat_test_clean <- data_clean %>%
+        filter(row_number() %in% unlist(flds[i]))
+    # obtain the test fold with noise
+    dat_test_noise <- data_noise %>%
+        filter(row_number() %in% unlist(flds[i]))
+    
+    # train the partial least squares
+    fit_pls <- plsr(cbind(density, true_four) ~
+                      ., data = dat_train, validation = 'LOO',
+                    scale = TRUE)
+    
+    # cross-validation to determine number of components
+    ncomp.cv <- crossval(fit_pls)$ncomp
+    
+    # predict the density & directions in the left-out fold without nois
+    predict_pls_clean <- predict(fit_pls,
+                                 newdata = dat_test_clean,
+                                 ncomp = ncomp.cv)
+    # the predictions for the dummy variables can be interpreted
+    # as class probabilities
+    predict_pls_clean <- tibble(density_pred = 
+                                  predict_pls_clean[, 1, 1],
+                                direction_four =
+                                  predict_pls_clean[, 2, 1]) %>%
+      mutate(directions_pred = ifelse(direction_four >= 0.5,
+                                     4, 8))
+    
+    # predict the density & directions in the left-out fold with noise
+    predict_pls_noise <- predict(fit_pls,
+                                 newdata = dat_test_noise,
+                                 ncomp = ncomp.cv)
+    
+    predict_pls_noise <- tibble(density_pred = 
+                                  predict_pls_noise[, 1, 1],
+                                direction_four =
+                                  predict_pls_noise[, 2, 1]) %>%
+      mutate(directions_pred = ifelse(direction_four >= 0.5,
+                                     4, 8))
+    
+    # add the predictions to the data frame
+    results_new_clean <- tibble(density = dat_test_clean$density,
+                          directions = dat_test_clean$directions,
+                          density_pred = 
+                            predict_pls_clean$density_pred,
+                          directions_pred = 
+                            predict_pls_clean$directions_pred,
+                          fold = i,
+                          noise = 'clean')
+    results_new_noise <- tibble(density = dat_test_clean$density,
+                                directions = dat_test_clean$directions,
+                                density_pred =
+                                  predict_pls_noise$density_pred,
+                                directions_pred = 
+                                  predict_pls_noise$directions_pred,
+                                fold = i,
+                                noise = 'noise')
+    results_df <- results_df %>%
+      add_row(results_new_clean) %>%
+      add_row(results_new_noise)
+  }
+  
+  return(results_df)
+}
+```
+
 
 Timesteps, not summarised
 ```{r}
