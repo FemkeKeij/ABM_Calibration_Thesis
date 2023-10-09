@@ -140,6 +140,7 @@ FirePLSFitting <- function(data_clean,
 }
 ```
 
+Work with this one:
 ```{r}
 FirePLSFitting <- function(data_clean,
                        data_noise){
@@ -178,14 +179,14 @@ FirePLSFitting <- function(data_clean,
         filter(row_number() %in% unlist(flds[i]))
     
     # train the partial least squares
-    fit_pls <- plsr(cbind(density, true_four) ~
-                      ., data = dat_train, validation = 'LOO',
+    fit_pls <- plsr(cbind(density, true_four) ~ . - directions,
+                    data = dat_train, validation = 'LOO',
                     scale = TRUE)
     
     # cross-validation to determine number of components
     ncomp.cv <- crossval(fit_pls)$ncomp
     
-    # predict the density & directions in the left-out fold without nois
+    # predict the density & directions in the left-out fold without noise
     predict_pls_clean <- predict(fit_pls,
                                  newdata = dat_test_clean,
                                  ncomp = ncomp.cv)
