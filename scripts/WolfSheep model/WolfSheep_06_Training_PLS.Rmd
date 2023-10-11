@@ -35,165 +35,417 @@ library(pls)
 
 Functions used:
 ```{r}
-source('scripts/WolfSheep/WolfSheep_Functions.R')
-```
-
-Read in the data:
-```{r}
-# training data
-ws_train <- read_csv('data/processed/wolfsheep_timesteps_training.csv')
+source('scripts/WolfSheep model/WolfSheep_Functions.R')
 ```
 
 # Fitting with cross-validation
 Function to cross-validate partial least squares:
 ```{r}
-WolfSheepSimpleRegression <- function(data,
-                                      sampling_method,
-                                      timesteps,
-                                      noise){
+WolfSheepPLSFitting <- function(data_clean,
+                                data_outputnoise,
+                                data_doublenoise){
+  # data_clean: the data frame containing the input parameters as well as the relevant outputs
+  # data_outputnoise: the data frame containing the input parameters as well as the relevant outputs, with output noise
+  # data_doublenoise: the data frame containing the input parameters as well as the relevant outputs, with output and temporal noise
+  
+  # check if there is data with output and temporal (double) noise
+  double_noise <- !any(is.na(data_doublenoise))
+  
   # create the folds
-  flds <- createFolds(1:nrow(data),
+  flds <- createFolds(1:nrow(data_clean),
                       k = 5, list = TRUE, returnTrain = FALSE)
 
   # to store the results
   results_df <- tibble(fold = numeric(),
-                       variable = character(),
-                       perc_correct = numeric(),
-                       perc_correct_cat = numeric(),
-                       RMSE = numeric(),
-                       NRMSE = numeric(),
-                       point_pred = numeric())
-
+                       noise = character(),
+                       initial_number_sheep = numeric(),
+                       initial_number_sheep_pred = numeric(),
+                       initial_number_wolves = numeric(),
+                       initial_number_wolves_pred = numeric(),
+                       sheep_gain_from_food = numeric(),
+                       sheep_gain_from_food_pred = numeric(),
+                       wolves_gain_from_food = numeric(),
+                       wolves_gain_from_food_pred = numeric(),
+                       sheep_reproduce = numeric(),
+                       sheep_reproduce_pred = numeric(),
+                       wolves_reproduce = numeric(),
+                       wolves_reproduce_pred = numeric(),
+                       grass_regrowth = numeric(),
+                       grass_regrowth_pred = numeric())
+  
   # for each cross-validation fold
   for(i in 1:5){
     # remove the test fold to create the training data
-    dat <- data %>%
-      filter(!combination_number %in% unlist(flds[i])) %>%
-      select(- combination_number)
+    dat_train <- data_clean %>%
+      filter(!row_number() %in% unlist(flds[i]))
   
-    # obtain the test fold
-    dat_test <- data %>%
-      filter(combination_number %in% unlist(flds[i])) %>%
-      select(- combination_number)
-  
-    # train the partial linear regressions
-    fit <- plsr(cbind(initial_number_sheep, initial_number_wolves, 
-                  sheep_gain_from_food, wolves_gain_from_food,
-                  sheep_reproduce, wolves_reproduce,
-                  grass_regrowth) ~ ., data = dat,
-                validation = 'LOO', scale = TRUE)
+    # obtain the test fold without noise
+    dat_test <- data_clean %>%
+      filter(row_number() %in% unlist(flds[i]))
+    # obtain the test fold with output noise
+    dat_test_outputnoise <- data_outputnoise %>%
+      filter(row_number() %in% unlist(flds[i]))
+    # obtain the test fold with output and temporal noise
+    if(double_noise){
+    dat_test_doublenoise <- data_doublenoise %>%
+      filter(row_number() %in% unlist(flds[i]))
+    }
+    
+    # train the partial least squares
+    fit_pls <- plsr(cbind(initial_number_sheep,
+                          initial_number_wolves,
+                          sheep_gain_from_food,
+                          wolves_gain_from_food,
+                          sheep_reproduce,
+                          wolves_reproduce,
+                          grass_regrowth) ~ .,
+                    data = dat_train, validation = 'LOO',
+                    scale = TRUE)
     
     # cross-validation to determine number of components
-    # ncomp.cv <- crossval(fit)$ncomp
-    ncomp.cv = 3
+    ncomp.cv <- crossval(fit_pls)$ncomp
+   
+    # predictions without noise
+    predict_pls_clean <- predict(fit_pls,
+                                 newdata = dat_test,
+                                 ncomp = ncomp.cv)
+    # predictions with output noise
+    predict_pls_outputnoise <- predict(fit_pls,
+                                       newdata = dat_test_outputnoise,
+                                       ncomp = ncomp.cv)
+    # predictions with double noise (if applicable)
+    if(double_noise){
+    predict_pls_doublenoise <- predict(fit_pls,
+                                       newdata = dat_test_doublenoise,
+                                       ncomp = ncomp.cv)
+    }
     
-    # predict test data using fitted PLS
-    pred <- predict(fit, newdata = dat_test, ncomp = ncomp.cv)
-    pred_initial_sheep <- pred[, 1, 1]
-    pred_initial_wolves <- pred[, 2, 1]
-    pred_food_sheep <- pred[, 3, 1]
-    pred_food_wolves <- pred[, 4, 1]
-    pred_rep_sheep <- pred[, 5, 1]
-    pred_rep_wolves <- pred[, 6, 1]
-    pred_grass <- pred[, 7, 1]
-  
-    # compute mean input parameters in training data for
-    # point prediction computation
-    mean_initial_sheep <- mean(dat$initial_number_sheep)
-    mean_initial_wolves <- mean(dat$initial_number_wolves)
-    mean_food_sheep <- mean(dat$sheep_gain_from_food)
-    mean_food_wolves <- mean(dat$wolves_gain_from_food)
-    mean_rep_sheep <- mean(dat$sheep_reproduce)
-    mean_rep_wolves <- mean(dat$wolves_reproduce)
-    mean_grass <- mean(dat$grass_regrowth)
-  
-    # add error computations
+    # add to dataframe, without noise
     results_df <- results_df %>%
-      add_row(ComputeErrorsContinuous(pred_initial_sheep,
-                                      dat_test$initial_number_sheep,
-                                      mean_initial_sheep,
-                                      variable = 'initial number of sheep',
-                                      fold = i)) %>%
-      add_row(ComputeErrorsContinuous(pred_initial_wolves,
-                                      dat_test$initial_number_wolves,
-                                      mean_initial_sheep,
-                                      variable = 'initial number of wolves',
-                                      fold = i)) %>%
-      add_row(ComputeErrorsContinuous(pred_food_sheep,
-                                      dat_test$sheep_gain_from_food,
-                                      mean_food_sheep,
-                                      variable = 'sheep gain from food',
-                                      fold = i)) %>%
-      add_row(ComputeErrorsContinuous(pred_food_wolves,
-                                      dat_test$wolves_gain_from_food,
-                                      mean_food_wolves,
-                                      variable = 'wolves gain from food',
-                                      fold = i)) %>%
-      add_row(ComputeErrorsContinuous(pred_rep_sheep,
-                                      dat_test$sheep_reproduce,
-                                      mean_rep_sheep,
-                                      variable = 'probability sheep reproduce',
-                                      fold = i)) %>%
-      add_row(ComputeErrorsContinuous(pred_rep_wolves,
-                                      dat_test$wolves_reproduce,
-                                      mean_rep_wolves,
-                                      variable = 'probability wolves reproduce',
-                                      fold = i)) %>%
-      add_row(ComputeErrorsContinuous(pred_grass,
-                                      dat_test$grass_regrowth,
-                                      mean_grass,
-                                      variable = 'grass regrowth time',
-                                      fold = i))
+      add_row(fold = i,
+              noise = 'clean',
+              initial_number_sheep = dat_test$initial_number_sheep,
+              initial_number_sheep_pred = predict_pls_clean[, 1, 1],
+              initial_number_wolves = dat_test$initial_number_wolves,
+              initial_number_wolves_pred = predict_pls_clean[, 2, 1],
+              sheep_gain_from_food = dat_test$sheep_gain_from_food,
+              sheep_gain_from_food_pred = predict_pls_clean[, 3, 1],
+              wolves_gain_from_food = dat_test$wolves_gain_from_food,
+              wolves_gain_from_food_pred = predict_pls_clean[, 4, 1],
+              sheep_reproduce = dat_test$sheep_reproduce,
+              sheep_reproduce_pred = predict_pls_clean[, 5, 1],
+              wolves_reproduce = dat_test$wolves_reproduce,
+              wolves_reproduce_pred = predict_pls_clean[, 6, 1],
+              grass_regrowth = dat_test$grass_regrowth,
+              grass_regrowth_pred = predict_pls_clean[, 7, 1])
+    # add to dataframe, output noise
+    results_df <- results_df %>%
+      add_row(fold = i,
+              noise = 'output noise',
+              initial_number_sheep = dat_test$initial_number_sheep,
+              initial_number_sheep_pred = 
+                predict_pls_outputnoise[, 1, 1],
+              initial_number_wolves = dat_test$initial_number_wolves,
+              initial_number_wolves_pred = 
+                predict_pls_outputnoise[, 2, 1],
+              sheep_gain_from_food = dat_test$sheep_gain_from_food,
+              sheep_gain_from_food_pred = 
+                predict_pls_outputnoise[, 3, 1],
+              wolves_gain_from_food = dat_test$wolves_gain_from_food,
+              wolves_gain_from_food_pred = 
+                predict_pls_outputnoise[, 4, 1],
+              sheep_reproduce = dat_test$sheep_reproduce,
+              sheep_reproduce_pred = 
+                predict_pls_outputnoise[, 5, 1],
+              wolves_reproduce = dat_test$wolves_reproduce,
+              wolves_reproduce_pred = 
+                predict_pls_outputnoise[, 6, 1],
+              grass_regrowth = dat_test$grass_regrowth,
+              grass_regrowth_pred = 
+                predict_pls_outputnoise[, 7, 1])
+    # add to dataframe, with double noise (if applicable)
+    if(double_noise){
+      results_df <- results_df %>%
+      add_row(fold = i,
+              noise = 'double noise',
+              initial_number_sheep = dat_test$initial_number_sheep,
+              initial_number_sheep_pred = 
+                predict_pls_doublenoise[, 1, 1],
+              initial_number_wolves = dat_test$initial_number_wolves,
+              initial_number_wolves_pred = 
+                predict_pls_doublenoise[, 2, 1],
+              sheep_gain_from_food = dat_test$sheep_gain_from_food,
+              sheep_gain_from_food_pred = 
+                predict_pls_doublenoise[, 3, 1],
+              wolves_gain_from_food = dat_test$wolves_gain_from_food,
+              wolves_gain_from_food_pred = 
+                predict_pls_doublenoise[, 4, 1],
+              sheep_reproduce = dat_test$sheep_reproduce,
+              sheep_reproduce_pred = 
+                predict_pls_doublenoise[, 5, 1],
+              wolves_reproduce = dat_test$wolves_reproduce,
+              wolves_reproduce_pred = 
+                predict_pls_doublenoise[, 6, 1],
+              grass_regrowth = dat_test$grass_regrowth,
+              grass_regrowth_pred = 
+                predict_pls_doublenoise[, 7, 1])
+    }
   }
-  
-  # compute mean of each statistic over the 5 folds
-  results_df <- results_df %>%
-    group_by(variable)%>%
-    summarise_all(mean) %>%
-    select(- fold) %>%
-    add_column(sampling_method = sampling_method,
-               timesteps = timesteps,
-               noise = noise)
-  
   return(results_df)
 }
 ```
 
-For now:
+Now fit regressions for all data combinations:
+- endpoints only, full time series, timesteps every 10, 20, or 50 ticks
+- runs summarised or not
+- data without noise, data with output noise, data with output and temporal noise
+- random vs. LHS sampling
+- 1250, 5000, vs. 10000 samples
+
+Endpoints only:
 ```{r}
-out <- WolfSheepSimpleRegression(ws_train,
-                                 sampling_method = 'random',
-                                 timesteps = 'all',
-                                 noise = 'no')
+# not summarised
+# read in relevant data
+data_end_full_clean <- read_csv('data/training/ws_end_full_clean.csv')
+data_end_full_outputnoise <-
+  read_csv('data/training/ws_end_full_outputnoise.csv')
+
+# no temporal noise here because it's endpoints only
+
+# fit regression
+fit_end_full <- WolfSheepPLSFitting(
+  data_clean = data_end_full_clean,
+  data_outputnoise = data_end_full_outputnoise,
+  data_doublenoise = NA)
+
+# compute errors
+errors_df <- WSComputeErrors(predictions = fit_end_full,
+                             sample_size = 40,
+                             sample_method = 'trial',
+                             summarise_runs = 'full',
+                             datapoints = 'endpoints',
+                             double_noise = FALSE)
+
+# summarised
+data_end_sum_clean <- read_csv('data/training/ws_end_sum_clean.csv')
+data_end_sum_outputnoise <-
+  read_csv('data/training/ws_end_sum_outputnoise.csv')
+
+fit_end_sum <- WolfSheepPLSFitting(
+  data_clean = data_end_sum_clean,
+  data_outputnoise = data_end_sum_outputnoise,
+  data_doublenoise = NA)
+
+errors_df <- errors_df %>%
+  add_row(WSComputeErrors(predictions = fit_end_sum,
+                             sample_size = 40,
+                             sample_method = 'trial',
+                             summarise_runs = 'summarised',
+                             datapoints = 'endpoints',
+                            double_noise = FALSE))
 ```
 
-1) no noise, 10 steps, random sampling
+Timesteps every 10 ticks
+```{r}
+# not summarised
+data_10_full_clean <- 
+  read_csv('data/training/ws_10_full_clean.csv')
+data_10_full_outputnoise <- 
+  read_csv('data/training/ws_10_full_outputnoise.csv')
+data_10_full_doublenoise <- 
+  read_csv('data/training/ws_10_full_doublenoise.csv')
 
-2) no noise, 20 steps, random sampling
+fit_10_full <- WolfSheepPLSFitting(
+  data_clean = data_10_full_clean,
+  data_outputnoise = data_10_full_outputnoise,
+  data_doublenoise = data_10_full_doublenoise)
 
-3) no noise, 50 steps, random sampling
+errors_df <- errors_df %>%
+  add_row(WSComputeErrors(predictions = fit_10_full,
+                             sample_size = 40,
+                             sample_method = 'trial',
+                             summarise_runs = 'full',
+                             datapoints = 'timesteps 10'))
 
-4) no noise, endpoint, random sampling
+# summarised
+data_10_sum_clean <- 
+  read_csv('data/training/ws_10_sum_clean.csv')
+data_10_sum_outputnoise <- 
+  read_csv('data/training/ws_10_sum_outputnoise.csv')
+data_10_sum_doublenoise <- 
+  read_csv('data/training/ws_10_sum_doublenoise.csv')
 
-4) no noise, 10 steps, lhs
+fit_10_sum <- WolfSheepPLSFitting(
+  data_clean = data_10_sum_clean,
+  data_outputnoise = data_10_sum_outputnoise,
+  data_doublenoise = data_10_sum_doublenoise)
 
-5) no noise, 20 steps, lhs
+errors_df <- errors_df %>%
+  add_row(WSComputeErrors(predictions = fit_10_sum,
+                             sample_size = 40,
+                             sample_method = 'trial',
+                             summarise_runs = 'summarised',
+                             datapoints = 'timesteps 10'))
+```
 
-6) no noise, 50 steps, lhs
+Timesteps every 20 ticks
+```{r}
+# not summarised
+data_20_full_clean <-
+  read_csv('data/training/ws_20_full_clean.csv')
+data_20_full_outputnoise <- 
+  read_csv('data/training/ws_20_full_outputnoise.csv')
+data_20_full_doublenoise <- 
+  read_csv('data/training/ws_20_full_doublenoise.csv')
+  
+fit_20_full <- WolfSheepPLSFitting(
+  data_clean = data_20_full_clean,
+  data_outputnoise = data_20_full_outputnoise,
+  data_doublenoise = data_20_full_doublenoise)
 
-7) no noise, endpoing, 
+errors_df <- errors_df %>%
+  add_row(WSComputeErrors(predictions = fit_20_full,
+                             sample_size = 40,
+                             sample_method = 'trial',
+                             summarise_runs = 'full',
+                             datapoints = 'timesteps 20'))
 
-1) no noise, 10 steps, random sampling
+# summarised
+data_20_sum_clean <- 
+  read_csv('data/training/ws_20_sum_clean.csv')
+data_20_sum_outputnoise <- 
+  read_csv('data/training/ws_20_sum_outputnoise.csv')
+data_20_sum_doublenoise <- 
+  read_csv('data/training/ws_20_sum_doublenoise.csv')
 
-2) no noise, 20 steps, random sampling
+fit_20_sum <- WolfSheepPLSFitting(
+  data_clean = data_20_sum_clean,
+  data_outputnoise = data_20_sum_outputnoise,
+  data_doublenoise = data_20_sum_doublenoise)
 
-3) no noise, 50 steps, random sampling
+errors_df <- errors_df %>%
+  add_row(WSComputeErrors(predictions = fit_20_sum,
+                             sample_size = 40,
+                             sample_method = 'trial',
+                             summarise_runs = 'summarised',
+                             datapoints = 'timesteps 20'))
+```
 
-4) no noise, 10 steps, lhs
+Timesteps every 50 ticks
+```{r}
+# not summarised
+data_50_full_clean <- 
+  read_csv('data/training/ws_50_full_clean.csv')
+data_50_full_outputnoise <- 
+  read_csv('data/training/ws_50_full_outputnoise.csv')
+data_50_full_doublenoise <- 
+  read_csv('data/training/ws_50_full_doublenoise.csv')
 
-5) no noise, 20 steps, lhs
+fit_50_full <- WolfSheepPLSFitting(
+  data_clean = data_50_full_clean,
+  data_outputnoise = data_50_full_outputnoise,
+  data_doublenoise = data_50_full_doublenoise)
 
-6) no noise, 50 steps, random sampling
+errors_df <- errors_df %>%
+  add_row(WSComputeErrors(predictions = fit_50_full,
+                             sample_size = 40,
+                             sample_method = 'trial',
+                             summarise_runs = 'full',
+                             datapoints = 'timesteps 50'))
+
+# summarised
+data_50_sum_clean <- 
+  read_csv('data/training/ws_50_sum_clean.csv')
+data_50_sum_outputnoise <- 
+  read_csv('data/training/ws_50_sum_outputnoise.csv')
+data_50_sum_doublenoise <- 
+  read_csv('data/training/ws_50_sum_doublenoise.csv')
+
+fit_50_sum <- WolfSheepPLSFitting(
+  data_clean = data_50_sum_clean,
+  data_outputnoise = data_50_sum_outputnoise,
+  data_doublenoise = data_50_sum_doublenoise)
+
+errors_df <- errors_df %>%
+  add_row(WSComputeErrors(predictions = fit_50_sum,
+                             sample_size = 40,
+                             sample_method = 'trial',
+                             summarise_runs = 'summarised',
+                             datapoints = 'timesteps 50'))
+```
+
+Full time series
+```{r,  eval = FALSE}
+# not summarised
+data_series_full_clean <- 
+  read_csv('data/training/ws_series_full_clean.csv')
+data_series_full_outputnoise <- 
+  read_csv('data/training/ws_series_full_outputnoise.csv')
+data_series_full_doublenoise <- 
+  read_csv('data/training/ws_series_full_doublenoise.csv')
+
+fit_series_full <- WolfSheepPLSFitting(
+  data_clean = data_series_full_clean,
+  data_outputnoise = data_series_full_outputnoise,
+  data_doublenoise = data_series_full_doublenoise)
+
+errors_df <- errors_df %>%
+  add_row(WSComputeErrors(predictions = fit_series_full,
+                             sample_size = 40,
+                             sample_method = 'trial',
+                             summarise_runs = 'full',
+                             datapoints = 'timeseries'))
+
+# summarised
+data_series_sum_clean <- 
+  read_csv('data/training/ws_series_sum_clean.csv')
+data_series_sum_outputnoise <- 
+  read_csv('data/training/ws_series_sum_outputnoise.csv')
+data_series_sum_doublenoise <- 
+  read_csv('data/training/ws_series_sum_doublenoise.csv')
+
+fit_series_sum <- WolfSheepPLSFitting(
+  data_clean = data_series_sum_clean,
+  data_outputnoise = data_series_sum_outputnoise,
+  data_doublenoise = data_series_sum_doublenoise)
+
+errors_df <- errors_df %>%
+  add_row(WSComputeErrors(predictions = fit_series_sum,
+                             sample_size = 40,
+                             sample_method = 'trial',
+                             summarise_runs = 'summarised',
+                             datapoints = 'timeseries'))
+```
+
+Save data:
+```{r}
+# check what I need to call this
+errors_df %>%
+  mutate(algorithm = 'PLS') %>%
+  write_csv('data/results/wolfsheep_PLS_errors.csv')
+
+# save fitted values also? (this would just be for plotting, of which I'm not so sure yet that I want to do that)
+```
+
+# Plots
+```{r}
+# data to correct format
+errors_long <- PrepErrorsForPlotting(errors_df)
+
+# plot RMSE
+RMSE_plots <- PlotRMSE(errors_df)
+plot1 <- RMSE_plots[[1]][1]
+ggsave('figures/ws_pls_RMSE_full.pdf')
+plot2 <- RMSE_plots[[1]][2]
+ggsave('figures/ws_pls_RMSE_sum.pdf')
+
+# plot point predictive performance
+ppp_plots <- PlotPPP(errors_df)
+plot3 <- ppp_plots[[1]][1]
+ggsave('figures/ws_pls_ppp_full.pdf')
+plot4 <- ppp_plots[[1]][2]
+ggsave('figures/ws_pls_ppp_sum.pdf')
+```
 
 # Visualise results
 Compare each error metric:

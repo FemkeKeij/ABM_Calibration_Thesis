@@ -32,14 +32,7 @@ library(caret)
 
 Functions used:
 ```{r}
-source('scripts/WolfSheep/WolfSheep_Functions.R')
-```
-
-Read in the data:
-```{r}
-# training data
-ws_train <- read_csv('data/training/wolfsheep_training.csv') %>%
-  rename(trend_grass_noise = tend_grass_noise)
+source('scripts/WolfSheep model/WolfSheep_Functions.R')
 ```
 
 # Fitting with cross-validation
@@ -239,231 +232,6 @@ WolfSheepSimpleRegressionFitting <- function(data_clean,
     }
   }
   return(results_df)
-}
-```
-
-Error computations:
-```{r}
-WSComputeErrors <- function(predictions,
-                            sample_size, sample_method,
-                            summarise_runs, datapoints,
-                            double_noise = TRUE){
-  # predictions: dataframe with results from fitting
-  # sample_size, sample_method, summarise_runs, datapoints: info to
-  #     pass on to output data frame
-  # double_noise: indicates whether the dataframe includes temporal
-  #     noise as well as output noise
-  
-  # to store the results:
-  errors <- tibble(perc_correct_params = numeric(),
-                   perc_initial_sheep_correct = numeric(),
-                   perc_initial_wolves_correct = numeric(),
-                   perc_food_sheep_correct = numeric(),
-                   perc_food_wolves_correct = numeric(),
-                   perc_sheep_rep_correct = numeric(),
-                   perc_wolves_rep_correct = numeric(),
-                   perc_grass_correct = numeric(),
-                   RMSE_initial_sheep = numeric(),
-                   RMSE_initial_wolves = numeric(),
-                   RMSE_food_sheep = numeric(),
-                   RMSE_food_wolves = numeric(),
-                   RMSE_sheep_rep = numeric(),
-                   RMSE_wolves_rep = numeric(),
-                   RMSE_grass = numeric(),
-                   NRMSE_initial_sheep = numeric(),
-                   NRMSE_initial_wolves = numeric(),
-                   NRMSE_food_sheep = numeric(),
-                   NRMSE_food_wolves = numeric(),
-                   NRMSE_sheep_rep = numeric(),
-                   NRMSE_wolves_rep = numeric(),
-                   NRMSE_grass = numeric(),
-                   ppp_initial_sheep = numeric(),
-                   ppp_initial_wolves = numeric(),
-                   ppp_food_sheep = numeric(),
-                   ppp_food_wolves = numeric(),
-                   ppp_sheep_rep = numeric(),
-                   ppp_wolves_rep = numeric(),
-                   ppp_grass = numeric(),
-                   fold = numeric(),
-                   noise = character())
-  
-  # for each noise level
-  if(double_noise){
-    noise_levels <- c('clean', 'output noise', 'double noise')
-  } else {
-    noise_levels <- c('clean', 'output noise')
-  }
-  
-  for(i in noise_levels){
-    data_noise <- predictions %>%
-      filter(noise == i)
-    for(j in 1:5){
-      # compute mean values in training data
-      mean_vals <- data_noise %>%
-        filter(fold != j) %>%
-        summarise(mean_initial_number_sheep =
-                    mean(initial_number_sheep),
-                  mean_initial_number_wolves = 
-                    mean(initial_number_wolves),
-                  mean_sheep_gain_from_food = 
-                    mean(sheep_gain_from_food),
-                  mean_wolves_gain_from_food = 
-                    mean(wolves_gain_from_food),
-                  mean_sheep_reproduce = mean(sheep_reproduce),
-                  mean_wolves_reproduce = mean(wolves_reproduce),
-                  mean_grass_regrowth = mean(grass_regrowth))
-      
-      data <- data_noise %>%
-        filter(fold == j)
-      
-      new_errors <- data %>%
-        summarise(perc_correct_params =
-                      sum(initial_number_sheep_pred ==
-                            initial_number_sheep &
-                            initial_number_wolves_pred ==
-                            initial_number_wolves & 
-                            sheep_gain_from_food_pred ==
-                            sheep_gain_from_food &
-                            wolves_gain_from_food_pred ==
-                            wolves_gain_from_food &
-                            sheep_reproduce_pred ==
-                            sheep_reproduce &
-                            wolves_reproduce_pred == 
-                            wolves_reproduce & 
-                            grass_regrowth_pred ==
-                            grass_regrowth) / nrow(data) * 100,
-                   perc_initial_sheep_correct =
-                     sum(initial_number_sheep ==
-                           initial_number_sheep_pred) /
-                     nrow(data) * 100,
-                   perc_initial_wolves_correct =
-                     sum(initial_number_wolves ==
-                           initial_number_wolves_pred) /
-                     nrow(data) * 100,
-                   perc_food_sheep_correct =
-                     sum(sheep_gain_from_food ==
-                           sheep_gain_from_food_pred) /
-                     nrow(data) * 100,
-                   perc_food_wolves_correct =
-                     sum(wolves_gain_from_food ==
-                           wolves_gain_from_food_pred) /
-                     nrow(data) * 100,
-                   perc_sheep_rep_correct =
-                     sum(sheep_reproduce == sheep_reproduce_pred) /
-                     nrow(data) * 100,
-                   perc_wolves_rep_correct =
-                     sum(wolves_reproduce == wolves_reproduce_pred) /
-                     nrow(data) * 100,
-                   perc_grass_correct =
-                     sum(grass_regrowth == grass_regrowth_pred) /
-                     nrow(data) * 100,
-                   RMSE_initial_sheep =
-                     sqrt(sum((initial_number_sheep_pred -
-                                 initial_number_sheep)^2)) /
-                     nrow(data),
-                   RMSE_initial_wolves =
-                     sqrt(sum((initial_number_wolves_pred -
-                                 initial_number_wolves)^2)) /
-                     nrow(data),
-                   RMSE_food_sheep =
-                     sqrt(sum((sheep_gain_from_food_pred -
-                                 sheep_gain_from_food)^2)) /
-                     nrow(data),
-                   RMSE_food_wolves =
-                     sqrt(sum((wolves_gain_from_food_pred -
-                                 wolves_gain_from_food)^2)) /
-                     nrow(data),
-                   RMSE_sheep_rep =
-                     sqrt(sum((sheep_reproduce_pred -
-                                 sheep_reproduce)^2)) / nrow(data),
-                   RMSE_wolves_rep =
-                     sqrt(sum((wolves_reproduce_pred -
-                                 wolves_reproduce)^2)) / nrow(data),
-                   RMSE_grass =
-                     sqrt(sum((grass_regrowth_pred -
-                                 grass_regrowth)^2)) / nrow(data),
-                   NRMSE_initial_sheep =
-                     (sqrt(sum((initial_number_sheep_pred -
-                                  initial_number_sheep)^2)) /
-                        nrow(data)) / sd(initial_number_sheep),
-                   NRMSE_initial_wolves =
-                     (sqrt(sum((initial_number_wolves_pred -
-                                  initial_number_wolves)^2)) /
-                        nrow(data)) / sd(initial_number_wolves),
-                   NRMSE_food_sheep =
-                     (sqrt(sum((sheep_gain_from_food_pred -
-                                  sheep_gain_from_food)^2)) /
-                        nrow(data)) / sd(sheep_gain_from_food),
-                   NRMSE_food_wolves =
-                     (sqrt(sum((wolves_gain_from_food_pred -
-                                  wolves_gain_from_food)^2)) /
-                        nrow(data)) / sd(wolves_gain_from_food),
-                   NRMSE_sheep_rep =
-                     (sqrt(sum((sheep_reproduce_pred -
-                                  sheep_reproduce)^2)) / nrow(data)) /
-                     sd(sheep_reproduce),
-                   NRMSE_wolves_rep =
-                     (sqrt(sum((wolves_reproduce_pred -
-                                  wolves_reproduce)^2)) /
-                        nrow(data)) / sd(wolves_reproduce),
-                   NRMSE_grass =
-                     (sqrt(sum((grass_regrowth_pred -
-                                  grass_regrowth)^2)) /
-                        nrow(data)) / sd(grass_regrowth),
-                   ppp_initial_sheep =
-                     1 - sum(sqrt((initial_number_sheep_pred -
-                                     initial_number_sheep)^2)) /
-                     sum(sqrt((initial_number_sheep  - 
-                            mean_vals$mean_initial_number_sheep)^2)),
-                   ppp_initial_wolves =
-                     1 - sum(sqrt((initial_number_wolves_pred -
-                                     initial_number_wolves)^2)) /
-                      sum(sqrt((initial_number_wolves -
-                          mean_vals$mean_initial_number_wolves)^2)),
-                   ppp_food_sheep =
-                     1 - sum(sqrt((sheep_gain_from_food_pred -
-                                     sheep_gain_from_food)^2)) /
-                     sum(sqrt((sheep_gain_from_food -
-                             mean_vals$mean_sheep_gain_from_food)^2)),
-                   ppp_food_wolves =
-                     1 - sum(sqrt((wolves_gain_from_food_pred -
-                                     wolves_gain_from_food)^2)) /
-                     sum(sqrt((wolves_gain_from_food -
-                            mean_vals$mean_wolves_gain_from_food)^2)),
-                   ppp_sheep_rep =
-                     1 - sum(sqrt((sheep_reproduce_pred -
-                                     sheep_reproduce)^2)) /
-                        sum(sqrt((sheep_reproduce -
-                                  mean_vals$mean_sheep_reproduce)^2)),
-                   ppp_wolves_rep =
-                     1 - sum(sqrt((wolves_reproduce_pred -
-                                     wolves_reproduce)^2)) /
-                     sum(sqrt((wolves_reproduce -
-                                 mean_vals$mean_wolves_reproduce)^2)),
-                   ppp_grass =
-                     1 - sum(sqrt((grass_regrowth_pred -
-                                     grass_regrowth)^2)) /
-                     sum(sqrt((grass_regrowth -
-                                 mean_vals$mean_grass_regrowth)^2)),
-                   fold = j,
-                   noise = i)
-          
-          errors <- errors %>%
-            add_row(new_errors)
-        }
-  }
-  # compute mean over folds (per noise type)
-  errors <- errors %>%
-    group_by(noise) %>%
-    summarise_all(mean) %>%
-    select(- fold) %>%
-    # add the experiment info to the df
-    add_column(sample_size = sample_size,
-               sample_method = sample_method,
-               summarise_runs = summarise_runs,
-               datapoints = datapoints)
-    
-  return(errors)  
 }
 ```
 
@@ -693,13 +461,34 @@ Save data:
 ```{r}
 # check what I need to call this
 errors_df %>%
+  mutate(algorithm = 'Linear Regression')
   write_csv('data/results/wolfsheep_LR_errors.csv')
 
 # save fitted values also? (this would just be for plotting, of which I'm not so sure yet that I want to do that)
 ```
 
-########## ------------ OLD CODE ------------------- #############
+# Plots
+```{r}
+# data to correct format
+errors_long <- PrepErrorsForPlotting(errors_df)
 
+# plot RMSE
+RMSE_plots <- PlotRMSE(errors_df)
+plot1 <- RMSE_plots[[1]][1]
+ggsave('figures/ws_pls_RMSE_full.pdf')
+plot2 <- RMSE_plots[[1]][2]
+ggsave('figures/ws_pls_RMSE_sum.pdf')
+
+# plot point predictive performance
+ppp_plots <- PlotPPP(errors_df)
+plot3 <- ppp_plots[[1]][1]
+ggsave('figures/ws_pls_ppp_full.pdf')
+plot4 <- ppp_plots[[1]][2]
+ggsave('figures/ws_pls_ppp_sum.pdf')
+```
+
+Remove if above works:
+########## ------------ OLD CODE ------------------- #############
 # Visualise results
 Split into sheep, wolves, grass:
 ```{r}
