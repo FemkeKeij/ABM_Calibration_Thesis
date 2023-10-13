@@ -42,8 +42,10 @@ Source files for error computation and plotting functions:
 source('scripts/Fire model/Fire_Functions.R')
 ```
 
-# Fitting
-A function to fit a Partial Least Squares for the density and direction parameters, using 5-fold cross-validation.
+# Univariate
+
+## Fitting
+A function to fit a Random Forest for the density and direction parameters, using 5-fold cross-validation.
 ```{r}
 FireRFFitting <- function(data_clean,
                        data_noise){
@@ -82,7 +84,6 @@ FireRFFitting <- function(data_clean,
     fit_rf_directions <- randomForest(as.factor(directions) ~
                                         . - density,
                                       data = dat_train,
-                                      proximity = TRUE,
                                       ntree = 500)
     
     # predict the density & directions in the left-out fold without noise
@@ -221,7 +222,7 @@ errors %>%
   write_csv(file = 'data/results/fire_rf_errors.csv')
 ```
 
-# Plots
+## Plots
 ```{r}
 plot1 <- PlotPercCorrectParams(errors)
 
@@ -238,4 +239,221 @@ ggsave('figures/fire_rf_density.pdf')
 plot3 <- PlotErrorsDirections(errors)
 
 ggsave('figures/fire_rf_directions.pdf')
+```
+
+# Multivariate
+Clear working directory:
+```{r}
+rm(list = ls(all = TRUE))
+
+set.seed(405)
+```
+
+## Fitting
+A function to fit a Multivariate Random Forest for the density and direction parameters, using 5-fold cross-validation.
+```{r}
+FireMRFFitting <- function(data_clean,
+                       data_noise){
+  # data_clean: the data frame containing the input parameters as well as the relevant outputs
+  # data_noise: supply data with noise here
+  
+  # create the folds
+  flds <- createFolds(1:nrow(data_clean),
+                      k = 5, list = TRUE, returnTrain = FALSE)
+
+  # to store the results
+  results_df <- tibble(density = numeric(),
+                       directions = numeric(),
+                       density_pred = numeric(),
+                       directions_pred = numeric(),
+                       noise = character(),
+                       fold = numeric())
+  
+  # turn directions variable into a dummy
+  data_clean <- data_clean %>%
+    mutate(true_four = ifelse(directions == 4, 1, 0))
+  data_noise <- data_noise %>%
+    mutate(true_four = ifelse(directions == 4, 1, 0))
+  
+  # for each cross-validation fold
+  for(i in 1:5){
+    # remove the test fold to create the training data
+    dat_train <- data_clean %>%
+      filter(!row_number() %in% unlist(flds[i]))
+    trainX <- dat_train %>%
+      select(- c(density, true_four, directions))
+    trainY <- dat_train %>%
+      select(density, true_four)
+    
+    # obtain the test fold without noise
+    dat_test_clean <- data_clean %>%
+        filter(row_number() %in% unlist(flds[i]))
+    testX_clean <- dat_test_clean %>%
+      select(- c(density, true_four, directions))
+    # obtain the test fold with noise
+    dat_test_noise <- data_noise %>%
+        filter(row_number() %in% unlist(flds[i]))
+    testX_noise <- dat_test_noise %>%
+      select(- c(density, true_four, directions))
+    
+    # train the multivariate random forest and predict
+    #   the test sets
+    pred_mrf_clean <- build_forest_predict(trainX = as.matrix(trainX),
+                                           trainY = as.matrix(trainY),
+                                           n_tree = 10,
+                                           min_leaf = 5,
+                                           m_feature = 3,
+                                           testX =
+                                             as.matrix(testX_clean))
+    pred_mrf_noise <- build_forest_predict(trainX = as.matrix(trainX),
+                                           trainY = as.matrix(trainY),
+                                           n_tree = 10,
+                                           m_feature = 3,
+                                           min_leaf = 5,
+                                           testX =
+                                             as.matrix(testX_noise))
+    
+    # add the predictions to the data frame
+    results_new_clean <- tibble(density = dat_test_clean$density,
+                          directions = dat_test_clean$directions,
+                          density_pred = 
+                            pred_mrf_clean[, 1],
+                          directions_pred = 
+                            pred_mrf_clean[, 2],
+                          fold = i,
+                          noise = 'clean') %>%
+      mutate(directions_pred = ifelse(directions_pred >= 0.5, 4, 8))
+    
+    results_new_noise <- tibble(density = dat_test_clean$density,
+                                directions = dat_test_clean$directions,
+                                density_pred =
+                                  pred_mrf_noise[, 1],
+                                directions_pred = 
+                                  pred_mrf_noise[, 2],
+                                fold = i,
+                                noise = 'noise') %>%
+      mutate(directions_pred = ifelse(directions_pred >= 0.5, 4, 8))
+    
+    results_df <- results_df %>%
+      add_row(results_new_clean) %>%
+      add_row(results_new_noise)
+  }
+  
+  return(results_df)
+}
+```
+
+Timesteps, not summarised
+```{r}
+data_time_full_clean <-
+  read_csv('data/training/fire_time_full_clean.csv')
+data_time_full_outputnoise <-
+  read_csv('data/training/fire_time_full_outputnoise.csv')
+
+# fit regressions
+fit_data_time_full <-
+  FireMRFFitting(data_time_full_clean,
+                 data_noise = data_time_full_outputnoise)
+
+# compute errors
+errors_data_time_full <- 
+  FireComputeErrors(fit_data_time_full,
+                    sample_size = 198,
+                    sample_method = 'full',
+                    summarise_runs = 'full',
+                    datapoints = 'timepoints')
+
+# dataframe to store all errors
+errors <- errors_data_time_full
+```
+
+Timesteps, summarised
+```{r}
+data_time_sum_clean <-
+  read_csv('data/training/fire_time_sum_clean.csv')
+data_time_sum_outputnoise <-
+  read_csv('data/training/fire_time_sum_outputnoise.csv')
+
+fit_data_time_sum <-
+  FireMRFFitting(data_time_sum_clean,
+                 data_noise = data_time_sum_outputnoise)
+
+errors_data_time_sum <- 
+  FireComputeErrors(fit_data_time_sum,
+                    sample_size = 198,
+                    sample_method = 'full',
+                    summarise_runs = 'summarised',
+                    datapoints = 'timepoints')
+
+errors <- errors %>%
+  add_row(errors_data_time_sum)
+```
+
+Endpoints, not summarised
+```{r}
+data_end_full_clean <-
+  read_csv('data/training/fire_end_full_clean.csv')
+data_end_full_outputnoise <-
+  read_csv('data/training/fire_end_full_outputnoise.csv')
+
+fit_data_end_full <-
+  FireMRFFitting(data_end_full_clean,
+                 data_noise = data_end_full_outputnoise)
+
+errors_data_end_full <- 
+  FireComputeErrors(fit_data_end_full,
+                    sample_size = 198,
+                    sample_method = 'full',
+                    summarise_runs = 'full',
+                    datapoints = 'endpoints')
+
+errors <- errors %>%
+  add_row(errors_data_end_full)
+```
+
+Endpoints, summarised
+```{r}
+data_end_sum_clean <- read_csv('data/training/fire_end_sum_clean.csv')
+data_end_sum_outputnoise <-
+  read_csv('data/training/fire_end_sum_outputnoise.csv')
+
+fit_data_end_sum <-
+  FireMRFFitting(data_end_sum_clean,
+                 data_noise = data_end_sum_outputnoise)
+
+errors_data_end_sum <- 
+  FireComputeErrors(fit_data_end_sum,
+                    sample_size = 198,
+                    sample_method = 'full',
+                    summarise_runs = 'summarised',
+                    datapoints = 'endpoints')
+
+errors <- errors %>%
+  add_row(errors_data_end_sum)
+```
+
+Save results:
+```{r}
+errors %>%
+  mutate(algorithm = 'Multivariate Random Forest') %>%
+  write_csv(file = 'data/results/fire_mrf_errors.csv')
+```
+
+## Plots
+```{r}
+plot1 <- PlotPercCorrectParams(errors)
+
+ggsave('figures/fire_mrf_perc_correct.pdf')
+```
+
+```{r}
+plot2 <- PlotErrorsDensity(errors)
+
+ggsave('figures/fire_mrf_density.pdf')
+```
+
+```{r}
+plot3 <- PlotErrorsDirections(errors)
+
+ggsave('figures/fire_mrf_directions.pdf')
 ```

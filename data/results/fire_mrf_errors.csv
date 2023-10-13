@@ -1,0 +1,3 @@
+noise,perc_correct_params,perc_density_correct,perc_directions_correct,perc_correct_cat_density,RMSE_density,NRMSE_density,point_pred_performance_density,directions_kappa,directions_f1,directions_mcc,sample_size,sample_method,summarise_runs,datapoints,algorithm
+clean,15.351659595212386,15.655715381501674,84.55040675355447,64.95069821754004,0.4323188328671955,0.015142071768059207,-17.05744285320997,0.6909090909090909,0.8501469147894221,0.6922679790124364,198,full,full,timepoints,Multivariate Random Forest
+noise,2.727800928448838,3.2318362566047694,59.90217198900208,31.411907509655133,0.9987907081210955,0.03497004056176251,-43.64431658420647,0.19797979797979792,0.49037227214377405,0.218859072874933,198,full,full,timepoints,Multivariate Random Forest
