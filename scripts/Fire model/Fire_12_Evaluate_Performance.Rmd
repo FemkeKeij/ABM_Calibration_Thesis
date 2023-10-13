@@ -30,121 +30,174 @@ library(ggbeeswarm)
 
 Data:
 ```{r}
-lhs_errors <- read_csv('data/processed/fire_LHS_errors.csv')
-regression_errors <- read_csv('data/processed/fire_regression_errors.csv')
-piecewisereg_errors <- read_csv('data/processed/fire_piecewise_errors.csv')
-gam_errors <- read_csv('data/processed/fire_gam_errors.csv')
-elasticnet_errors <- read_csv('data/processed/fire_elasticnet_errors.csv')
-randomforest_errors <- read_csv('data/processed/fire_forest_errors.csv')
-pls_errors <- read_csv('data/processed/fire_partialleastsquares_errors.csv')
-mrf_errors <- read_csv('data/processed/fire_MultivariateRandomForest_errors.csv')
-# ABC
-# GA
-# Neural networks
-```
-
-Add column with method name:
-```{r}
-lhs_errors <- lhs_errors %>%
-  mutate(method = 'Latin Hypercube Sampling')
-regression_errors <- regression_errors %>%
-  mutate(method = 'Simple Linear and Logistic Regression')
-piecewisereg_errors <- piecewisereg_errors %>%
-  mutate(method = 'Piecewise Linear and Logistic Regression')
-gam_errors <- gam_errors %>%
-  mutate(method = 'Generalized Additive Model with Cubic Smoothing Spline')
-elasticnet_errors <- elasticnet_errors %>%
-  mutate(method = 'Elastic Net Regression')
-randomforest_errors <- randomforest_errors %>%
-  mutate(method = 'Regression and Classification Random Forest')
-pls_errors <- pls_errors %>%
-  mutate(method = 'Partial Least Squares Regression')
-mrf_errors <- mrf_errors %>%
-  mutate(method = 'Multivariate Random Forest')
+lr_errors <- read_csv('data/results/fire_lr_errors.csv')
+pls_errors <- read_csv('data/results/fire_pls_errors.csv')
+rf_errors <- read_csv('data/results/fire_rf_errors.csv')
 ```
 
 Merge all data:
 ```{r}
-errors <- bind_rows(lhs_errors, regression_errors, piecewisereg_errors,
-                    gam_errors, elasticnet_errors, randomforest_errors,
-                    pls_errors, mrf_errors)
+errors <- bind_rows(lr_errors, pls_errors, rf_errors)
 ```
 
-Now, for each error metric, retrieve the best performance per algorithm, the sample size it was achieved for, and whether it was achieved with or without ticks.
+Now, for each error metric, retrieve the best, worst, and average performance per algorithm, and its noise, datapoints, and run summarisation characteristics.
 ```{r}
-RetrieveBestPerformance <- function(errors, metric, opt){
+RetrievePerformancesAlgorithms <- function(errors, metrics){
   # errors: data frame with error measurements
-  # metric: metric for which to retrieve best per method
-  # opt: how to determine which is best (min, max, or 95%)
+  # metrics: list of metrics for which to compute performances
   
-  # set name for metric
-  optimal_metric <- str_c('optimal_', metric)
+  errors_return <- tibble(algorithm = character(),
+                          datapoints = character(),
+                          noise = character(),
+                          summarise_runs = character(),
+                          statistic = character(),
+                          value = numeric(),
+                          metric = character())
   
-  # if higher indicates better
-  if(opt == 'max'){
-    errors_return <- errors %>%
-      # retrieve maximum per method
-      group_by(method) %>%
-      mutate(optimal_metric = max(get(metric))) %>%
-      ungroup() %>%
-      # keep only the best performance for each method
-      filter(get(metric) == optimal_metric) %>%
-      # keep method, sample size, ticks, and error measures
-      select(c('method', 'n', 'ticks_included', optimal_metric))
-    # if lower indicates better
-  } else if(opt == 'min'){
-    errors_return <- errors %>%
-      group_by(method) %>%
-      mutate(optimal_metric = min(get(metric))) %>%
-      ungroup() %>%
-      filter(get(metric) == optimal_metric) %>%
-      select(c('method', 'n', 'ticks_included', optimal_metric))
-    # if best performance is at 95% (coverage)
-  } else if(opt == '95'){
-    errors_return <- errors %>%
-      # find the coverage closest to 95% per method
-      group_by(method) %>%
-      mutate(optimal_metric = min(abs(get(metric) - 95))) %>%
-      ungroup() %>%
-      filter(abs(get(metric) - 95) == optimal_metric) %>%
-      select(c('method', 'n', 'ticks_included', optimal_metric))
+  for(metric in metrics){
+    # compute mean performance for each of the algorithms
+    mean_performance <- errors %>%
+      group_by(algorithm) %>%
+      select(all_of(metric), algorithm) %>%
+      mutate(mean = mean(get(metric))) %>%
+      select(- 1) %>%
+      distinct() %>%
+      mutate(statistic = 'mean',
+             datapoints = '-',
+             noise = '-',
+             summarise_runs = '-',
+             metric = metric) %>%
+      rename(value = mean)
+    
+    errors_add <- errors %>%
+      select(all_of(metric), algorithm, datapoints, noise,
+             summarise_runs) %>%
+      # retrieve maximum per algorithm
+      group_by(algorithm) %>%
+      mutate(max = max(get(metric)),
+             min = min(get(metric)),
+             mean = mean(get(metric))) %>%
+      mutate(keep = ifelse(get(metric) == min, 'min',
+                           ifelse(get(metric) == max, 'max',
+                                  '-'))) %>%
+      pivot_longer(cols = c(max, min, mean),
+                   names_to = 'statistic',
+                   values_to = 'value') %>%
+      # keep only the data that produced the min and max values
+      filter(keep %in% c('min', 'max'),
+             keep == statistic) %>%
+      select(- 1) %>%
+      distinct() %>%
+      select(- keep) %>%
+      mutate(metric = metric)
+    
+    errors_return <- errors_return %>%
+      add_row(errors_add) %>%
+      add_row(mean_performance)
   }
-  
+
   return(errors_return)
 }
 ```
 
+Compute:
 ```{r}
-errors_perc_correct_params <- 
-  RetrieveBestPerformance(errors, metric = 'perc_correct_params', opt = 'max')
-errors_perc_density_correct <- 
-  RetrieveBestPerformance(errors, metric = 'perc_density_correct', opt = 'max')
-errors_perc_direction_correct <- 
-  RetrieveBestPerformance(errors, metric = 'perc_direction_correct', opt = 'max')
-errors_perc_correct_cat_density <- 
-  RetrieveBestPerformance(errors, metric = 'perc_correct_cat_density', opt = 'max')
-errors_RMSE_density <- 
-  RetrieveBestPerformance(errors, metric = 'RMSE_density', opt = 'min')
-errors_NRMSE_density <- 
-  RetrieveBestPerformance(errors, metric = 'NRMSE_density', opt = 'min')
-errors_RMSE_burn <- 
-  RetrieveBestPerformance(errors, metric = 'RMSE_burn', opt = 'min')
-errors_NRMSE_burn <- 
-  RetrieveBestPerformance(errors, metric = 'NRMSE_burn', opt = 'min')
-errors_point_pred_performance_density <- 
-  RetrieveBestPerformance(errors, metric = 'point_pred_performance_density', opt = 'max')
-errors_direction_kappa <- 
-  RetrieveBestPerformance(errors, metric = 'direction_kappa', opt = 'max')
-errors_direction_f1 <- 
-  RetrieveBestPerformance(errors, metric = 'direction_f1', opt = 'max')
-errors_direction_mcc <-
-  RetrieveBestPerformance(errors, metric = 'direction_mcc', opt = 'max')
-errors_coverage_density <-
-  RetrieveBestPerformance(errors, metric = 'coverage_density', opt = '95')
+metrics_vector <- c('perc_correct_params',
+                    'perc_density_correct',
+                    'perc_directions_correct',
+                    'perc_correct_cat_density',
+                    'RMSE_density',
+                    'NRMSE_density',
+                    'point_pred_performance_density',
+                    'directions_kappa',
+                    'directions_f1',
+                    'directions_mcc')
+
+errors_performance_algorithms <- 
+  RetrievePerformancesAlgorithms(errors,
+                                 metrics = metrics_vector)
+```
+
+Now, for each dataset, retrieve the best, worst, and average performance and the corresponding algorithm.
+```{r}
+RetrievePerformancesData <- function(errors, metrics){
+  # errors: data frame with error measurements
+  # metrics: list of metrics for which to compute performances
+  
+  errors_return <- tibble(datapoints = character(),
+                          noise = character(),
+                          summarise_runs = character(),
+                          statistic = character(),
+                          value = numeric(),
+                          metric = character())
+  
+  # for each metric
+  for(metric in metrics){
+    errors_add <- errors %>%
+      # select relevant data
+      select(all_of(metric), datapoints, noise,
+             summarise_runs) %>%
+      # group by variables that define the data sets
+      group_by(datapoints, summarise_runs, noise) %>%
+      # compute min, max, and mean of the metric
+      mutate(max = max(get(metric)),
+             min = min(get(metric)),
+             mean = mean(get(metric))) %>%
+      select(- 1) %>%
+      distinct() %>%
+      pivot_longer(cols = c(max, min, mean),
+                   names_to = 'statistic',
+                   values_to = 'value') %>%
+      mutate(metric = metric)
+    
+    errors_return <- errors_return %>%
+      add_row(errors_add)
+  }
+ return(errors_return)
+}
+```
+
+Compute:
+```{r}
+errors_performance_data <- RetrievePerformancesData(errors,
+                                                    metrics =
+                                                      metrics_vector)
 ```
 
 # Plotted comparions
-Plot metrics for each method, indicate sample size and colour based on whether or not ticks were included:
+Plot metrics for each method:
+```{r}
+errors_performance_algorithms %>%
+  ggplot(mapping = aes(x = factor(statistic,
+                                  level = c('min', 'mean', 'max')),
+                       y = value, fill = algorithm)) +
+  geom_bar(stat = 'identity',
+             position = position_dodge()) +
+  facet_wrap(~ metric,
+             scales = 'free_y') +
+  theme_minimal() +
+  theme(panel.grid.minor = element_blank(),
+        axis.title.x = element_blank())
+```
+
+############# CONTINUE HERE #####################
+Plot metrics for each dataset:
+```{r}
+errors_performance_data %>%
+  ggplot(mapping = aes(x = factor(statistic,
+                                  level = c('min', 'mean', 'max')),
+                       y = value, fill = noise)) +
+  geom_bar(stat = 'identity',
+           position = position_dodge()) +
+  facet_wrap( ~ metric,
+             scales = 'free_y') +
+  theme_minimal() +
+  theme(panel.grid.minor = element_blank(),
+        axis.title.x = element_blank())
+```
+
+Compare datasets:
+
 ```{r}
 PlotErrorMetrics <- function(errors, ascending = TRUE,
                              xlabel){
