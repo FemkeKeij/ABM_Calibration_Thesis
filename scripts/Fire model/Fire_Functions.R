@@ -286,51 +286,29 @@ PlotPercCorrectParams <- function(errors){
 PlotErrorsDensity <- function(errors){
   p1 <- errors %>%
     ggplot(mapping = aes(x = noise, y = RMSE_density,
-                         colour = summarise_runs)) +
-    geom_point(position = position_dodge(width = 0.5),
-               size = 3) +
-    geom_linerange(aes(x = noise, ymin = 0, ymax = RMSE_density,
-                       colour = summarise_runs),
-                   position = position_dodge(width = 0.5)) +
-    labs(colour = 'runs summarised',
-         y = 'RMSE tree density') +
+                         fill = summarise_runs)) +
+    geom_bar(position = 'dodge', stat = 'identity') +
+    facet_grid(~ datapoints) +
     theme_minimal() +
     theme(panel.grid.major.x = element_blank(),
-          panel.grid.minor.x = element_blank()) +
-    facet_grid(~ datapoints)
+          panel.grid.minor.x = element_blank(),
+          axis.text.x = element_text(angle = 90)) +
+    labs(y = 'RMSE density',
+         fill = 'runs summarised y/n')
   
   p2 <- errors %>%
-    ggplot(mapping = aes(x = noise, y = NRMSE_density,
-                         colour = summarise_runs)) +
-    geom_point(position = position_dodge(width = 0.5),
-               size = 3) +
-    geom_linerange(aes(x = noise, ymin = 0, ymax = NRMSE_density,
-                       colour = summarise_runs),
-                   position = position_dodge(width = 0.5)) +
-    labs(colour = 'runs summarised',
-         y = 'NRMSE tree density') +
-    theme_minimal() +
-    theme(panel.grid.major.x = element_blank(),
-          panel.grid.minor.x = element_blank()) +
-    facet_grid(~ datapoints)
-  
-  p3 <- errors %>%
     ggplot(mapping = aes(x = noise, y = point_pred_performance_density,
-                         colour = summarise_runs)) +
-    geom_point(position = position_dodge(width = 0.5),
-               size = 3) +
-    geom_linerange(aes(x = noise, ymin = 0,
-                       ymax = point_pred_performance_density,
-                       colour = summarise_runs),
-                   position = position_dodge(width = 0.5)) +
-    labs(colour = 'runs summarised',
+                         fill = summarise_runs)) +
+    geom_bar(position = 'dodge', stat = 'identity') +
+    labs(fill = 'runs summarised y/n',
          y = 'point prediction performance') +
     theme_minimal() +
     theme(panel.grid.major.x = element_blank(),
-          panel.grid.minor.x = element_blank()) +
+          panel.grid.minor.x = element_blank(),
+          axis.text.x = element_text(angle = 90)) +
     facet_grid(~ datapoints)
   
-  plot <- p1 + p2 + p3 +
+  plot <- p1 + p2 +
     plot_layout(guides = 'collect') +
     plot_annotation(tag_levels = 'A') & 
     theme(plot.tag = element_text(size = 8)) &
@@ -343,45 +321,36 @@ PlotErrorsDensity <- function(errors){
 PlotErrorsDirections <- function(errors, n_plot){
   p1 <- errors %>%
     ggplot(mapping = aes(x = noise, y = directions_kappa,
-                         colour = summarise_runs)) +
-    geom_point(position = position_dodge(width = 0.5),
-               size = 3) +
-    geom_linerange(aes(x = noise, ymin = 0,
-                       ymax = directions_kappa,
-                       colour = summarise_runs),
-                   position = position_dodge(width = 0.5)) +
+                         fill = summarise_runs)) +
+    geom_bar(position = 'dodge', stat = 'identity') +
     theme_minimal() +
-    theme(panel.grid.minor = element_blank()) +
-    labs(y = 'kappa', colour = 'runs summarised') +
+    theme(panel.grid.major.x = element_blank(),
+          panel.grid.minor.x = element_blank(),
+          axis.text.x = element_text(angle = 90)) +
+    labs(y = 'kappa', fill = 'runs summarised y/n') +
     facet_grid(~ datapoints)
   
   p2 <- errors %>%
     ggplot(mapping = aes(x = noise, y = directions_f1,
-                         colour = summarise_runs)) +
-    geom_point(position = position_dodge(width = 0.5),
-               size = 3) +
-    geom_linerange(aes(x = noise, ymin = 0,
-                       ymax = directions_f1,
-                       colour = summarise_runs),
-                   position = position_dodge(width = 0.5)) +
+                         fill = summarise_runs)) +
+    geom_bar(position = 'dodge', stat = 'identity') +
     theme_minimal() +
-    theme(panel.grid.minor = element_blank()) +
-    labs(y = 'F1 score', colour = 'runs summarised') +
+    theme(panel.grid.major.x = element_blank(),
+          panel.grid.minor.x = element_blank(),
+          axis.text.x = element_text(angle = 90)) +
+    labs(y = 'F1 score', fill = 'runs summarised') +
     lims(y = c(0, NA)) +
     facet_grid(~ datapoints)
   
   p3 <- errors %>%
     ggplot(mapping = aes(x = noise, y = directions_mcc,
-                         colour = summarise_runs)) +
-    geom_point(position = position_dodge(width = 0.5),
-               size = 3) +
-    geom_linerange(aes(x = noise, ymin = 0,
-                       ymax = directions_mcc,
-                       colour = summarise_runs),
-                   position = position_dodge(width = 0.5)) +
+                         fill = summarise_runs)) +
+    geom_bar(position = 'dodge', stat = 'identity') +
     theme_minimal() +
-    theme(panel.grid.minor = element_blank()) +
-    labs(y = 'MCC', colour = 'runs summarised') +
+    theme(panel.grid.major.x = element_blank(),
+          panel.grid.minor.x = element_blank(),
+          axis.text.x = element_text(angle = 90)) +
+    labs(y = 'MCC', fill = 'runs summarised') +
     lims(y = c(0, NA)) +
     facet_grid(~ datapoints)
   

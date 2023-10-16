@@ -473,14 +473,14 @@ errors_df %>%
 errors_long <- PrepErrorsForPlotting(errors_df)
 
 # plot RMSE
-RMSE_plots <- PlotRMSE(errors_df)
+RMSE_plots <- PlotRMSE(errors_long)
 plot1 <- RMSE_plots[[1]][1]
 ggsave('figures/ws_pls_RMSE_full.pdf')
 plot2 <- RMSE_plots[[1]][2]
 ggsave('figures/ws_pls_RMSE_sum.pdf')
 
 # plot point predictive performance
-ppp_plots <- PlotPPP(errors_df)
+ppp_plots <- PlotPPP(errors_long)
 plot3 <- ppp_plots[[1]][1]
 ggsave('figures/ws_pls_ppp_full.pdf')
 plot4 <- ppp_plots[[1]][2]
