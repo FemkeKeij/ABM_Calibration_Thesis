@@ -33,6 +33,7 @@ Data:
 lr_errors <- read_csv('data/results/fire_lr_errors.csv')
 pls_errors <- read_csv('data/results/fire_pls_errors.csv')
 rf_errors <- read_csv('data/results/fire_rf_errors.csv')
+mrf_errors <- read_csv('data/results/fire_mrf_errors.csv')
 ```
 
 Merge all data:
@@ -178,6 +179,8 @@ errors_performance_algorithms %>%
   theme_minimal() +
   theme(panel.grid.minor = element_blank(),
         axis.title.x = element_blank())
+
+ggsave('figures/fire_errors_algorithm.pdf')
 ```
 
 Plot metrics for each dataset:
@@ -194,6 +197,8 @@ errors_performance_data %>%
   theme(panel.grid.minor = element_blank(),
         axis.title.x = element_blank())
 
+ggsave('figures/fire_errors_noise.pdf')
+
 errors_performance_data %>%
   ggplot(mapping = aes(x = factor(statistic,
                                   level = c('min', 'mean', 'max')),
@@ -205,6 +210,8 @@ errors_performance_data %>%
   theme_minimal() +
   theme(panel.grid.minor = element_blank(),
         axis.title.x = element_blank())
+
+ggsave('figures/fire_errors_datapoints.pdf')
 
 errors_performance_data %>%
   ggplot(mapping = aes(x = factor(statistic,
@@ -218,6 +225,8 @@ errors_performance_data %>%
   theme(panel.grid.minor = element_blank(),
         axis.title.x = element_blank()) +
   labs(fill = 'summarised runs y/n')
+
+ggsave('figures/fire_errors_summariseruns.pdf')
 ```
 
 # Which method performs best for each parameter
