@@ -549,6 +549,445 @@ ggsave('figures/ws_rf_ppp_sum.pdf')
 ```
 
 # Multivariate
+Clear working directory:
+```{r}
+rm(list = ls(all = TRUE))
+
+set.seed(405)
+```
+
+## Fitting
+A function to fit a Random Forest for the 7 input parameters, using 5-fold cross-validation.
+```{r}
+WolfSheepMRFFitting <- function(data_clean,
+                               data_outputnoise,
+                               data_doublenoise){
+  # data_clean: the data frame containing the input parameters as well as the relevant outputs
+  # data_outputnoise: the data frame containing the input parameters as well as the relevant outputs, with output noise
+  # data_doublenoise: the data frame containing the input parameters as well as the relevant outputs, with output and temporal noise
+  
+  # create the folds
+  flds <- createFolds(1:nrow(data_clean),
+                      k = 5, list = TRUE, returnTrain = FALSE)
+
+  # to store the results
+  results_df <- tibble(fold = numeric(),
+                       noise = character(),
+                       initial_number_sheep = numeric(),
+                       initial_number_sheep_pred = numeric(),
+                       initial_number_wolves = numeric(),
+                       initial_number_wolves_pred = numeric(),
+                       sheep_gain_from_food = numeric(),
+                       sheep_gain_from_food_pred = numeric(),
+                       wolves_gain_from_food = numeric(),
+                       wolves_gain_from_food_pred = numeric(),
+                       sheep_reproduce = numeric(),
+                       sheep_reproduce_pred = numeric(),
+                       wolves_reproduce = numeric(),
+                       wolves_reproduce_pred = numeric(),
+                       grass_regrowth = numeric(),
+                       grass_regrowth_pred = numeric())
+  
+  # for each cross-validation fold
+  for(i in 1:5){
+    # remove the test fold to create the training data
+    dat_train <- data_clean %>%
+      filter(!row_number() %in% unlist(flds[i]))
+    trainX <- dat_train %>%
+      select(- c(initial_number_sheep, initial_number_wolves,
+                 sheep_gain_from_food, wolves_gain_from_food,
+                 sheep_reproduce, wolves_reproduce,
+                 grass_regrowth))
+    trainY <- dat_train %>%
+      select(c(initial_number_sheep, initial_number_wolves,
+                 sheep_gain_from_food, wolves_gain_from_food,
+                 sheep_reproduce, wolves_reproduce,
+                 grass_regrowth))
+  
+    # obtain the test fold without noise
+    dat_test <- data_clean %>%
+      filter(row_number() %in% unlist(flds[i]))
+    testX_clean <- dat_test %>%
+      select(- c(initial_number_sheep, initial_number_wolves,
+                 sheep_gain_from_food, wolves_gain_from_food,
+                 sheep_reproduce, wolves_reproduce,
+                 grass_regrowth))
+    # obtain the test fold with output noise
+    dat_test_outputnoise <- data_outputnoise %>%
+      filter(row_number() %in% unlist(flds[i]))
+    testX_outputnoise <- dat_test_outputnoise %>%
+      select(- c(initial_number_sheep, initial_number_wolves,
+                 sheep_gain_from_food, wolves_gain_from_food,
+                 sheep_reproduce, wolves_reproduce,
+                 grass_regrowth))
+    # obtain the test fold with output and temporal noise
+    if(!any(is.na(data_doublenoise))){
+      dat_test_doublenoise <- data_doublenoise %>%
+        filter(row_number() %in% unlist(flds[i]))
+      testX_doublenoise <- dat_test_doublenoise %>%
+        select(- c(initial_number_sheep, initial_number_wolves,
+                   sheep_gain_from_food, wolves_gain_from_food,
+                   sheep_reproduce, wolves_reproduce,
+                   grass_regrowth))
+    }
+    
+    # train the multivariate random forest and predict
+    #   the test sets
+    pred_mrf_clean <- build_forest_predict(trainX = as.matrix(trainX),
+                                           trainY = as.matrix(trainY),
+                                           n_tree = 10,
+                                           min_leaf = 5,
+                                           m_feature = 3,
+                                           testX =
+                                             as.matrix(testX_clean))
+    pred_mrf_outputnoise <- 
+      build_forest_predict(trainX = as.matrix(trainX),
+                                           trainY = as.matrix(trainY),
+                                           n_tree = 10,
+                                           min_leaf = 5,
+                                           m_feature = 3,
+                           testX = 
+                             as.matrix(testX_outputnoise))
+    if(!any(is.na(data_doublenoise))){
+      pred_mrf_doublenoise <- 
+        build_forest_predict(trainX = as.matrix(trainX),
+                                           trainY = as.matrix(trainY),
+                                           n_tree = 10,
+                                           min_leaf = 5,
+                                           m_feature = 3,
+                           testX = 
+                             as.matrix(testX_doublenoise))
+    }
+    
+    # add to predictions data frame
+    # without noise
+    results_df <- results_df %>%
+      add_row(fold = i,
+              noise = 'clean',
+              initial_number_sheep = dat_test$initial_number_sheep,
+              initial_number_sheep_pred = 
+                pred_mrf_clean[, 1],
+              initial_number_wolves = dat_test$initial_number_wolves,
+              initial_number_wolves_pred = 
+                pred_mrf_clean[, 2],
+              sheep_gain_from_food = dat_test$sheep_gain_from_food,
+              sheep_gain_from_food_pred = 
+                pred_mrf_clean[, 3],
+              wolves_gain_from_food = dat_test$wolves_gain_from_food,
+              wolves_gain_from_food_pred = 
+                pred_mrf_clean[, 4],
+              sheep_reproduce = dat_test$sheep_reproduce,
+              sheep_reproduce_pred = 
+                pred_mrf_clean[, 5],
+              wolves_reproduce = dat_test$wolves_reproduce,
+              wolves_reproduce_pred = 
+                pred_mrf_clean[, 6],
+              grass_regrowth = dat_test$grass_regrowth,
+              grass_regrowth_pred = 
+                pred_mrf_clean[, 7])
+    # with output noise
+    results_df <- results_df %>%
+      add_row(fold = i,
+              noise = 'output noise',
+              initial_number_sheep = dat_test$initial_number_sheep,
+              initial_number_sheep_pred = 
+                pred_mrf_outputnoise[, 1],
+              initial_number_wolves = dat_test$initial_number_wolves,
+              initial_number_wolves_pred = 
+                pred_mrf_outputnoise[, 2],
+              sheep_gain_from_food = dat_test$sheep_gain_from_food,
+              sheep_gain_from_food_pred = 
+                pred_mrf_outputnoise[, 3],
+              wolves_gain_from_food = dat_test$wolves_gain_from_food,
+              wolves_gain_from_food_pred = 
+                pred_mrf_outputnoise[, 4],
+              sheep_reproduce = dat_test$sheep_reproduce,
+              sheep_reproduce_pred = 
+                pred_mrf_outputnoise[, 5],
+              wolves_reproduce = dat_test$wolves_reproduce,
+              wolves_reproduce_pred = 
+                pred_mrf_outputnoise[, 6],
+              grass_regrowth = dat_test$grass_regrowth,
+              grass_regrowth_pred = 
+                pred_mrf_outputnoise[, 7])
+    
+    # predict the left-out fold with output and temporal noise
+    if(!any(is.na(data_doublenoise))){
+      # with output and temporal noise
+      results_df <- results_df %>%
+        add_row(fold = i,
+                noise = 'output noise',
+                initial_number_sheep = dat_test$initial_number_sheep,
+                initial_number_sheep_pred = 
+                  pred_mrf_doublenoise[, 1],
+                initial_number_wolves = dat_test$initial_number_wolves,
+                initial_number_wolves_pred = 
+                  pred_mrf_doublenoise[, 2],
+                sheep_gain_from_food = dat_test$sheep_gain_from_food,
+                sheep_gain_from_food_pred = 
+                  pred_mrf_doublenoise[, 3],
+                wolves_gain_from_food = dat_test$wolves_gain_from_food,
+                wolves_gain_from_food_pred = 
+                  pred_mrf_doublenoise[, 4],
+                sheep_reproduce = dat_test$sheep_reproduce,
+                sheep_reproduce_pred = 
+                  pred_mrf_doublenoise[, 5],
+                wolves_reproduce = dat_test$wolves_reproduce,
+                wolves_reproduce_pred = 
+                  pred_mrf_doublenoise[, 6],
+                grass_regrowth = dat_test$grass_regrowth,
+                grass_regrowth_pred = 
+                  pred_mrf_doublenoise[, 7])
+    }
+  }
+  return(results_df)
+}
+```
+
+Endpoints only:
+```{r}
+# not summarised
+# read in relevant data
+data_end_full_clean <- read_csv('data/training/ws_end_full_clean.csv')
+data_end_full_outputnoise <-
+  read_csv('data/training/ws_end_full_outputnoise.csv')
+
+# no temporal noise here because it's endpoints only
+
+# fit regression
+fit_end_full <- WolfSheepMRFFitting(
+  data_clean = data_end_full_clean,
+  data_outputnoise = data_end_full_outputnoise,
+  data_doublenoise = NA)
+
+# compute errors
+errors_df <- WSComputeErrors(predictions = fit_end_full,
+                             sample_size = 40,
+                             sample_method = 'trial',
+                             summarise_runs = 'full',
+                             datapoints = 'endpoints',
+                             double_noise = FALSE)
+
+# summarised
+data_end_sum_clean <- read_csv('data/training/ws_end_sum_clean.csv')
+data_end_sum_outputnoise <-
+  read_csv('data/training/ws_end_sum_outputnoise.csv')
+
+fit_end_sum <- WolfSheepMRFFitting(
+  data_clean = data_end_sum_clean,
+  data_outputnoise = data_end_sum_outputnoise,
+  data_doublenoise = NA)
+
+errors_df <- errors_df %>%
+  add_row(WSComputeErrors(predictions = fit_end_sum,
+                             sample_size = 40,
+                             sample_method = 'trial',
+                             summarise_runs = 'summarised',
+                             datapoints = 'endpoints',
+                            double_noise = FALSE))
+```
+
+Timesteps every 10 ticks
+```{r}
+# not summarised
+data_10_full_clean <- 
+  read_csv('data/training/ws_10_full_clean.csv')
+data_10_full_outputnoise <- 
+  read_csv('data/training/ws_10_full_outputnoise.csv')
+data_10_full_doublenoise <- 
+  read_csv('data/training/ws_10_full_doublenoise.csv')
+
+fit_10_full <- WolfSheepMRFFitting(
+  data_clean = data_10_full_clean,
+  data_outputnoise = data_10_full_outputnoise,
+  data_doublenoise = data_10_full_doublenoise)
+
+errors_df <- errors_df %>%
+  add_row(WSComputeErrors(predictions = fit_10_full,
+                             sample_size = 40,
+                             sample_method = 'trial',
+                             summarise_runs = 'full',
+                             datapoints = 'timesteps 10'))
+
+# summarised
+data_10_sum_clean <- 
+  read_csv('data/training/ws_10_sum_clean.csv')
+data_10_sum_outputnoise <- 
+  read_csv('data/training/ws_10_sum_outputnoise.csv')
+data_10_sum_doublenoise <- 
+  read_csv('data/training/ws_10_sum_doublenoise.csv')
+
+fit_10_sum <- WolfSheepMRFFitting(
+  data_clean = data_10_sum_clean,
+  data_outputnoise = data_10_sum_outputnoise,
+  data_doublenoise = data_10_sum_doublenoise)
+
+errors_df <- errors_df %>%
+  add_row(WSComputeErrors(predictions = fit_10_sum,
+                             sample_size = 40,
+                             sample_method = 'trial',
+                             summarise_runs = 'summarised',
+                             datapoints = 'timesteps 10'))
+```
+
+Timesteps every 20 ticks
+```{r}
+# not summarised
+data_20_full_clean <-
+  read_csv('data/training/ws_20_full_clean.csv')
+data_20_full_outputnoise <- 
+  read_csv('data/training/ws_20_full_outputnoise.csv')
+data_20_full_doublenoise <- 
+  read_csv('data/training/ws_20_full_doublenoise.csv')
+  
+fit_20_full <- WolfSheepMRFFitting(
+  data_clean = data_20_full_clean,
+  data_outputnoise = data_20_full_outputnoise,
+  data_doublenoise = data_20_full_doublenoise)
+
+errors_df <- errors_df %>%
+  add_row(WSComputeErrors(predictions = fit_20_full,
+                             sample_size = 40,
+                             sample_method = 'trial',
+                             summarise_runs = 'full',
+                             datapoints = 'timesteps 20'))
+
+# summarised
+data_20_sum_clean <- 
+  read_csv('data/training/ws_20_sum_clean.csv')
+data_20_sum_outputnoise <- 
+  read_csv('data/training/ws_20_sum_outputnoise.csv')
+data_20_sum_doublenoise <- 
+  read_csv('data/training/ws_20_sum_doublenoise.csv')
+
+fit_20_sum <- WolfSheepMRFFitting(
+  data_clean = data_20_sum_clean,
+  data_outputnoise = data_20_sum_outputnoise,
+  data_doublenoise = data_20_sum_doublenoise)
+
+errors_df <- errors_df %>%
+  add_row(WSComputeErrors(predictions = fit_20_sum,
+                             sample_size = 40,
+                             sample_method = 'trial',
+                             summarise_runs = 'summarised',
+                             datapoints = 'timesteps 20'))
+```
+
+Timesteps every 50 ticks
+```{r}
+# not summarised
+data_50_full_clean <- 
+  read_csv('data/training/ws_50_full_clean.csv')
+data_50_full_outputnoise <- 
+  read_csv('data/training/ws_50_full_outputnoise.csv')
+data_50_full_doublenoise <- 
+  read_csv('data/training/ws_50_full_doublenoise.csv')
+
+fit_50_full <- WolfSheepMRFFitting(
+  data_clean = data_50_full_clean,
+  data_outputnoise = data_50_full_outputnoise,
+  data_doublenoise = data_50_full_doublenoise)
+
+errors_df <- errors_df %>%
+  add_row(WSComputeErrors(predictions = fit_50_full,
+                             sample_size = 40,
+                             sample_method = 'trial',
+                             summarise_runs = 'full',
+                             datapoints = 'timesteps 50'))
+
+# summarised
+data_50_sum_clean <- 
+  read_csv('data/training/ws_50_sum_clean.csv')
+data_50_sum_outputnoise <- 
+  read_csv('data/training/ws_50_sum_outputnoise.csv')
+data_50_sum_doublenoise <- 
+  read_csv('data/training/ws_50_sum_doublenoise.csv')
+
+fit_50_sum <- WolfSheepMRFFitting(
+  data_clean = data_50_sum_clean,
+  data_outputnoise = data_50_sum_outputnoise,
+  data_doublenoise = data_50_sum_doublenoise)
+
+errors_df <- errors_df %>%
+  add_row(WSComputeErrors(predictions = fit_50_sum,
+                             sample_size = 40,
+                             sample_method = 'trial',
+                             summarise_runs = 'summarised',
+                             datapoints = 'timesteps 50'))
+```
+
+Full time series
+```{r,  eval = FALSE}
+# not summarised
+data_series_full_clean <- 
+  read_csv('data/training/ws_series_full_clean.csv')
+data_series_full_outputnoise <- 
+  read_csv('data/training/ws_series_full_outputnoise.csv')
+data_series_full_doublenoise <- 
+  read_csv('data/training/ws_series_full_doublenoise.csv')
+
+fit_series_full <- WolfSheepMRFFitting(
+  data_clean = data_series_full_clean,
+  data_outputnoise = data_series_full_outputnoise,
+  data_doublenoise = data_series_full_doublenoise)
+
+errors_df <- errors_df %>%
+  add_row(WSComputeErrors(predictions = fit_series_full,
+                             sample_size = 40,
+                             sample_method = 'trial',
+                             summarise_runs = 'full',
+                             datapoints = 'timeseries'))
+
+# summarised
+data_series_sum_clean <- 
+  read_csv('data/training/ws_series_sum_clean.csv')
+data_series_sum_outputnoise <- 
+  read_csv('data/training/ws_series_sum_outputnoise.csv')
+data_series_sum_doublenoise <- 
+  read_csv('data/training/ws_series_sum_doublenoise.csv')
+
+fit_series_sum <- WolfSheepMRFFitting(
+  data_clean = data_series_sum_clean,
+  data_outputnoise = data_series_sum_outputnoise,
+  data_doublenoise = data_series_sum_doublenoise)
+
+errors_df <- errors_df %>%
+  add_row(WSComputeErrors(predictions = fit_series_sum,
+                             sample_size = 40,
+                             sample_method = 'trial',
+                             summarise_runs = 'summarised',
+                             datapoints = 'timeseries'))
+```
+
+Save data:
+```{r}
+# check what I need to call this
+errors_df %>%
+  mutate(algorithm = 'Multivariate Random Forest')
+  write_csv('data/results/wolfsheep_mrf_errors.csv')
+
+# save fitted values also? (this would just be for plotting, of which I'm not so sure yet that I want to do that)
+```
+
+# Plots
+```{r}
+# data to correct format
+errors_long <- PrepErrorsForPlotting(errors_df)
+
+# plot RMSE
+RMSE_plots <- PlotRMSE(errors_long)
+plot1 <- RMSE_plots[[1]][1]
+ggsave('figures/ws_mrf_RMSE_full.pdf')
+plot2 <- RMSE_plots[[1]][2]
+ggsave('figures/ws_mrf_RMSE_sum.pdf')
+
+# plot point predictive performance
+ppp_plots <- PlotPPP(errors_long)
+plot3 <- ppp_plots[[1]][1]
+ggsave('figures/ws_mrf_ppp_full.pdf')
+plot4 <- ppp_plots[[1]][2]
+ggsave('figures/ws_mrf_ppp_sum.pdf')
+```
 
 
 
