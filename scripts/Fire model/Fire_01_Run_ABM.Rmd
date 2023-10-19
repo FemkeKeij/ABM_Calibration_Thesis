@@ -217,7 +217,7 @@ p2 <- cv_conv_burn %>%
 cv_conv_plot <- p1 / p2
 ```
 
-3) Windowed variance / relative outer variance
+3) Relative outer variance
 Width of window: 10 runs
 With $\epsilon_\omega^2 = 0.2$.
 ```{r}

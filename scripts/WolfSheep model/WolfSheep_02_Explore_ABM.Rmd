@@ -189,31 +189,34 @@ Function for plots
 ```{r}
 PlotParameterSpace <- function(parameter, label){
   p_sheep <- ws_summary_cat %>%
-    ggplot(mapping = aes(x = ticks, y = mean_sheep,
+    ggplot(mapping = aes(x = ticks, y = log(mean_sheep),
                        group = combination_number,
                        colour = get(parameter))) +
-    geom_line() +
+    geom_line(alpha = 0.5) +
     theme_minimal() +
-    labs(y = 'sheep',
-         colour = label)
+    labs(y = 'log sheep',
+         colour = label) +
+    scale_colour_brewer(palette = 'YlGn')
 
   p_wolves <- ws_summary_cat %>%
-    ggplot(mapping = aes(x = ticks, y = mean_wolves,
+    ggplot(mapping = aes(x = ticks, y = log(mean_wolves),
                        group = combination_number,
                        colour = get(parameter))) +
-    geom_line() +
+    geom_line(alpha = 0.5) +
     theme_minimal() +
-    labs(y = 'wolves',
-         colour = label)
+    labs(y = 'log wolves',
+         colour = label) +
+    scale_colour_brewer(palette = 'YlGn')
 
   p_grass <- ws_summary_cat %>%
-    ggplot(mapping = aes(x = ticks, y = mean_grass,
+    ggplot(mapping = aes(x = ticks, y = log(mean_grass),
                        group = combination_number,
                        colour = get(parameter))) +
-    geom_line() +
+    geom_line(alpha = 0.5) +
     theme_minimal() +
-    labs(y = 'grass',
-         colour = label)
+    labs(y = 'log grass',
+         colour = label) +
+    scale_colour_brewer(palette = 'YlGn')
   
   plot <- p_sheep + p_wolves + p_grass + plot_layout(guides = 'collect')
   
@@ -313,41 +316,107 @@ clustered_parameters <- ws_summary %>%
   add_column(cluster = clustering$cluster)
 
 # visualise results
-PlotClusters <- function(parameter, label){
-  plot <- clustered_parameters %>%
-    ggplot(mapping = aes(x = as.factor(cluster),
-                       y = get(parameter),
-                       colour = as.factor(cluster),
-                       fill = as.factor(cluster))) +
-    geom_jitter(width = 0.2) +
-    geom_boxplot(alpha = 0.1, width = 0.4,
-               outlier.colour = 'transparent') +
-    theme_minimal() +
-    labs(x = '5-means clusters',
-       y = label) +
-    theme(legend.position = 'none')
+PlotClusters <- function(data, parameters, labels){
+  for(i in length(parameters)){
+    plot <- data %>%
+      ggplot(mapping = aes(x = as.factor(cluster),
+                         y = get(parameters[i]),
+                         colour = as.factor(cluster),
+                         fill = as.factor(cluster))) +
+      geom_jitter(width = 0.2) +
+      geom_boxplot(alpha = 0.1, width = 0.4,
+                 outlier.colour = 'transparent') +
+      theme_minimal() +
+      labs(x = 'clusters',
+         y = label[i]) +
+      theme(legend.position = 'none')
+    
+    assign(paste("plot", get(parameters[i]), sep="_"),
+           plot)
+  }
   
-  return(plot)
+  all_plots <- (plot_initial_number_sheep +
+                  plot_initial_number_wolves +
+                  plot_sheep_gain_from_food +
+                  plot_wolves_gain_from_food) / (
+                    plot_sheep_reproduce +
+                      plot_wolves_reproduce +
+                      plot_grass_regrowth)
+  
+  return(all_plots)
 }
 
-clusters_sheep <- PlotClusters('initial_number_sheep',
-                               label = 'initial number of sheep')
-clusters_wolves <- PlotClusters('initial_number_wolves',
-                                label = 'initial number of wolves')
-clusters_food_sheep <- PlotClusters('sheep_gain_from_food',
-                                    label = 'sheep gain from food')
-clusters_food_wolves <- PlotClusters('wolves_gain_from_food',
-                                     label = 'wolves gain from food')
-clusters_rep_sheep <- PlotClusters('sheep_reproduce',
-                                   label = 'probability sheep reproduce')
-clusters_rep_wolves <- PlotClusters('wolves_reproduce',
-                                    label = 'probability wolves reproduce')
-clusters_grass <- PlotClusters('grass_regrowth',
-                               label = 'grass regrowth time')
-
-(clusters_sheep + clusters_wolves + clusters_food_sheep + clusters_food_wolves) / (clusters_rep_sheep + clusters_rep_wolves + clusters_grass)
+kmeans_plots <- PlotClusters(clustered_parameters,
+                             c('initial_number_sheep',
+                               'initial_number_wolves',
+                               'sheep_gain_from_food',
+                               'wolves_gain_from_food',
+                               'sheep_reproduce',
+                               'wolves_reproduce',
+                               'grass_regrowth'),
+                             c('initial number of sheep',
+                               'initial number of wolves',
+                               'sheep gain from food',
+                               'wolves gain from food',
+                               'probability sheep reproduce',
+                               'probability wolves reproduce',
+                               'grass regrowth time'))
 ```
 Looking at this it seems like the initial parameter can tell us very little about what the outcome will be like. So a lot of equifinality.
+
+Hierarchical dynamic time warping clustering
+```{r}
+# create data with all time points, standardize
+hierarchical_data <- ws_summary %>%
+  select(combination_number,
+         mean_sheep, mean_wolves, mean_grass, ticks) %>%
+  pivot_wider(names_from = ticks,
+              values_from = c(mean_sheep, mean_wolves, mean_grass)) %>%
+  select(- combination_number) %>%
+  scale()
+
+# change to list format to allow for different lengths of time series
+#   as input for the hierarchical clustering DTW algorithm
+hierarchical_data_list <- list()
+
+for(i in 1:nrow(hierarchical_data)){
+  # keep only ticks with values
+  throw <- which(is.na(hierarchical_data[i, ]))
+  keep <- hierarchical_data[i, - throw]
+  hierarchical_data_list <- append(hierarchical_data_list, keep)
+}
+
+# train hierarchical clustering with DTW
+hierarchical_clust <- tsclust(hierarchical_data_list,
+                              type = 'h',
+                              k = 5L,
+                              distance = 'dtw')
+
+# plot results
+plot(hierarchical_clust, type = 'sc')
+
+# plot rest of results (haven't tried running this yet)
+hierarchical_clustered_parameters <- ws_summary %>%
+  select(- c(mean_sheep, mean_wolves, mean_grass, ticks)) %>%
+  distinct() %>%
+  mutate(cluter = cutree(hierarchical_clust, k = 6L))
+  
+hierarchical_plots <- PlotClusters(hierarchical_clustered_parameters,
+                             c('initial_number_sheep',
+                               'initial_number_wolves',
+                               'sheep_gain_from_food',
+                               'wolves_gain_from_food',
+                               'sheep_reproduce',
+                               'wolves_reproduce',
+                               'grass_regrowth'),
+                             c('initial number of sheep',
+                               'initial number of wolves',
+                               'sheep gain from food',
+                               'wolves gain from food',
+                               'probability sheep reproduce',
+                               'probability wolves reproduce',
+                               'grass regrowth time'))
+```
 
 # Identifying unidentifiable parameters
 Correlation between parameters and outputs:

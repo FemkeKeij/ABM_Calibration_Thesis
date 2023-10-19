@@ -29,6 +29,9 @@ library(RColorBrewer)
 # for k-means clustering
 library(factoextra)
 
+# for hierarchical dynamic time warping clustering
+library(dtwclust)
+
 # for computing trends in data
 library(trend)
 ```
@@ -134,7 +137,11 @@ K-means clustering with 2 centers:
 ```{r}
 clustering <- kmeans(kmeans_data, centers = 2, nstart = 25)
 
-fviz_cluster(clustering, data = kmeans_data)
+fviz_cluster(clustering, data = kmeans_data) +
+  labs(title = element_blank()) +
+  theme_minimal() +
+  theme(legend.position = 'none',
+        panel.grid.minor = element_blank())
 ```
 
 Now inspect which parameter combinations ended up in the same cluster.
@@ -156,7 +163,7 @@ p1 <- clustered_parameters %>%
                         outlier.colour = 'transparent') +
            theme_minimal() +
            labs(x = '2-means clusters',
-                y = 'tree density') +
+                y = 'tree density (%)') +
            theme(legend.position = 'none')
 
 p2 <- clustered_parameters %>%
@@ -175,6 +182,74 @@ p2 <- clustered_parameters %>%
 p1 + p2
 ```
 The clusters show that we can distinguish fairly well between high and low tree densities based on the burn percentage during the simulation. However, it is difficult to distinguish between the directions. Therefore, we can conclude that there is equifinality for the number of directions.
+
+Hierarchical dynamic time warping clustering
+```{r}
+# create data with all time points, standardize
+hierarchical_data <- fire_summary %>%
+  select(combination_number,
+         burn_percentage, ticks) %>%
+  pivot_wider(names_from = ticks,
+              values_from = burn_percentage) %>%
+  select(- combination_number) %>%
+  scale()
+
+# change to list format to allow for different lengths of time series
+#   as input for the hierarchical clustering DTW algorithm
+hierarchical_data_list <- list()
+
+for(i in 1:nrow(hierarchical_data)){
+  # keep only ticks with values
+  throw <- which(is.na(hierarchical_data[i, ]))
+  keep <- hierarchical_data[i, - throw]
+  hierarchical_data_list <- append(hierarchical_data_list, keep)
+}
+
+# train hierarchical clustering with DTW
+hierarchical_clust <- tsclust(hierarchical_data_list,
+                              type = 'h',
+                              k = 2L,
+                              distance = 'dtw')
+
+# plot results
+plot(hierarchical_clust, type = 'sc')
+
+# plot rest of results (haven't tried running this yet)
+hierarchical_clustered_parameters <- fire_summary %>%
+  select(combination_number,
+         directions, density) %>%
+  distinct() %>%
+  add_column(cluster = cutree(hierarchical_clust, k = 2L))
+
+p1 <- hierarchical_clustered_parameters %>%
+  ggplot(mapping = aes(x = as.factor(cluster),
+                       y = density,
+                       colour = as.factor(cluster),
+                       fill = as.factor(cluster))) +
+           geom_jitter(width = 0.2) +
+           geom_boxplot(alpha = 0.1, width = 0.4,
+                        outlier.colour = 'transparent') +
+           theme_minimal() +
+           labs(x = 'clusters',
+                y = 'tree density (%)') +
+           theme(legend.position = 'none')
+
+p2 <- hierarchical_clustered_parameters %>%
+  ggplot(mapping = aes(x = as.factor(cluster),
+                       y = directions,
+                       colour = as.factor(cluster),
+                       fill = as.factor(cluster))) +
+           geom_jitter(width = 0.2) +
+           geom_boxplot(alpha = 0.1, width = 0.4,
+                        outlier.colour = 'transparent') +
+           theme_minimal() +
+           labs(x = 'clusters',
+                y = ' number of directions') +
+           theme(legend.position = 'none')
+
+p1 + p2
+```
+Here I choose the number of clusters based on trial and error. 
 
 # Identifying unidentifiable parameters
 Correlation between parameters and outputs:
@@ -199,7 +274,11 @@ p2 <- fire_summary %>%
 
 p1 / p2
 ```
-We cannot say anything based on the slopes here, because there is only 1 continuous input parameter and the other one is discrete.
+2 issues to look at:
+1) flat slopes / no influence on output
+We see that the density slopes are not flat, so not issue 1. We also see that the boxplots for 4 and 8 are different, so not issue 1.
+2) similar slopes / influences
+We see that the slopes for density go up with increasing tree density and we also see that the mean in the boxplot goes up when moving from 4 to 8 directions. So we may have issue 2 here.
 
 # Temporal autocorrelation plots
 Compute (partial) autocorrelation for each time series
