@@ -734,9 +734,9 @@ ws_output$ticks <- rep(1:500, 600)
 # for the random combination numbers to look at
 for(i in inspect){
   p <- ws_output %>%
-    # retrieve number and ticks 50, 100, and 150
+    # retrieve number and ticks 50, 100, 150, 250, and 450
     filter(combination_number == i,
-          ticks %in% c(50, 100, 150)) %>%
+          ticks %in% c(50, 100, 150, 250, 450)) %>%
     # pivot longer to shorten plot code
     pivot_longer(cols = c('sheep', 'wolves', 'grass'),
                  names_to = 'turtles',
@@ -752,8 +752,26 @@ for(i in inspect){
   
   print(p)
 }
+
+# plot a histogram of all the standard deviations
+ws_output %>%
+  filter(ticks %in% c(50, 100, 150, 250, 450)) %>%
+  pivot_longer(cols = c('sheep', 'wolves', 'grass'),
+               names_to = 'turtles',
+               values_to = 'values') %>%
+  group_by(combination_number, ticks, turtles) %>%
+  mutate(sd = sd(values)) %>%
+  select(combination_number, sd, ticks, turtles) %>%
+  distinct()
+  ggplot(mapping = aes(x = sd)) +
+  geom_histogram(binwidth = 100) +
+  facet_grid(turtles ~ ticks) +
+  theme_minimal() +
+  theme(panel.border = element_rect(fill = NA,
+                                    colour = 'lightgrey')) +
+  labs(x = 'sd of outputs per parameter combination')
 ```
-Combination number 17 shows some dispersion. Otherwise, most runs seem to agree on the output and it seems reasonable to summarise using means.
+Combination number 17 shows some dispersion. There are definitely a few parameter combinations with very wide distributions. If these are approximately normally distributed the mean is not necessarily a bad summary measure, but it is also not ideal when trying to represent the full range of possible values. If the distributions are bimodal or otherwise non-normal, the mean is definitely not a good way to summarise.
 
 Manipulate data so that there is 1 outcome for each parameter combination:
 The outcomes for each parameter set are summarized by their mean sheep, wolves, and grass at every tick of the simulation.

@@ -405,8 +405,23 @@ for(i in inspect){
   
   print(p)
 }
+
+# plot a histogram of all the standard deviations
+fire_output %>%
+  filter(time_label %in% c('middle', 'end')) %>%
+  group_by(combination_number, time_label) %>%
+  mutate(sd = sd(burn_percentage)) %>%
+  select(combination_number, sd, time_label) %>%
+  distinct() %>%
+  ggplot(mapping = aes(x = sd)) +
+  geom_histogram(binwidth = 0.1) +
+  facet_grid(~ time_label) +
+  theme_minimal() +
+  theme(panel.border = element_rect(fill = NA,
+                                    colour = 'lightgrey')) +
+  labs(x = 'sd of burn percentage per parameter combination')
 ```
-The data aren't spread very widely so summarising by mean makes sense.
+The data aren't spread very widely so summarising by mean makes sense. We can see this by the small sd's in the second plot and the individual plots for the parameter combinations.
 
 Manipulate data so that there is 1 outcome for each parameter combination:
 The outcomes for each parameter set are summarized by their mean 
