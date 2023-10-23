@@ -2,6 +2,8 @@
 library(caret)
 # for matthew's correlation coefficient
 library(mltools)
+# for dynamic time warping
+library(dtw)
 
 ##--------------- COMPUTE ERRORS -------------------##
 # function to calculate errors for the fire model
@@ -27,6 +29,9 @@ FireComputeErrors <- function(predictions,
                    directions_kappa = numeric(),
                    directions_f1 = numeric(),
                    directions_mcc = numeric(),
+                   RMSE_burn = numeric(),
+                   pcc_burn = numeric(),
+                   dtw_burn = numeric(),
                    fold = numeric(),
                    noise = character())
   
@@ -41,10 +46,13 @@ FireComputeErrors <- function(predictions,
       dat <- dat_noise %>%
         filter(fold == i)
       
-      # compute mean density in training data
+      # compute mean density and burn percentage in training data
       mean_density <- predictions %>%
         filter(fold != i) %>%
         summarise(mean(density))
+      mean_burn <- predictions %>%
+        filter(fold != i) %>%
+        summarise(mean(burn_percentage))
       
       # compute errors
       errors_new <- dat %>%
@@ -89,6 +97,55 @@ FireComputeErrors <- function(predictions,
       errors_new$directions_mcc =
         mcc(as.factor(dat_noise$directions_pred),
             as.factor(dat_noise$directions))
+      
+      # add columns for the metrics for burn_percentage
+      errors_new$RMSE_burn <- NA
+      errors_new$pcc_burn <- NA
+      errors_new$dtw_burn <- NA
+      
+      # compute RMSE for burn percentage
+      if(any(dat$time_label == 'middle')){
+        RMSE_burn <- dat %>%
+          group_by(id) %>%
+          mutate(RMSE_b = sqrt(sum(burn_percentage_pred - 
+                                     burn_percentage)^2) / 2,
+                 RMSE_A = sqrt(sum(burn_percentage_pred -
+                                     mean_burn)^2) / 2) %>%
+          mutate(RMSE_burn_ind = RMSE_A / RMSE_b) %>%
+          ungroup(id) %>%
+          summarise(RMSE_burn = mean(RMSE_burn_ind))
+        errors_new$RMSE_burn <- RMSE_burn
+        
+        pcc_burn <- dat %>%
+          group_by(id) %>%
+          mutate(rho = cor(burn_percentage_pred, burn_percentage)) %>%
+          mutate(Z = 0.5 * log(1 + rho) - log(1 - rho)) %>%
+          ungroup() %>%
+          summarise(meanZ = mean(Z)) %>%
+          summarise(mean_rho = (exp(2 * meanZ) - 1)/
+                      (exp(2 * meanZ) - 1))
+        errors_new$pcc_burn <- pcc_burn
+        
+        # compute DTW score
+        dtws <- numeric()
+        for(k in unique(dat$id)){
+          x_mat <- dat %>%
+            filter(id == k) %>%
+            select(burn_percentage)
+          y_mat <- dat %>%
+            filter(id == k) %>%
+            select(burn_percentage_pred)
+          dtws[k] <- dtw(x_mat, y_mat,
+                         distance.only = TRUE)$normalizedDistance
+        }
+        errors_new$dtw_burn <- mean(dtws)
+        
+      } else {
+        # there's just 1 timepoint, so I can use the regular RMSE
+        errors_new$RMSE_burn <- sqrt(sum((burn_percentage_pred -
+                                            burn_percentage)^2)) /
+          nrow(dat)
+      }
       
       # add fold and noise levels & add to errors data frame
       errors_new$fold <- i
@@ -364,47 +421,49 @@ PlotErrorsDirections <- function(errors, n_plot){
 }
 
 # RMSE etc. of burn percentage
-PlotRMSEOut <- function(errors, n_plot){
+PlotErrorsBurnpercentage(errors) <- function(errors){
   p1 <- errors %>%
-    filter(n %in% n_plot) %>%
-    ggplot(mapping = aes(x = factor(n), y = RMSE_burn,
-                         colour = ticks_included)) +
-    geom_point(position = position_dodge(width = 0.5),
-               size = 3) +
-    geom_linerange(aes(x = n, ymin = 0, ymax = RMSE_burn,
-                       colour = ticks_included),
-                   position = position_dodge(width = 0.5)) +
-    labs(colour = 'Ticks included',
-         y = 'RMSE') +
+    ggplot(mapping = aes(x = noise, y = RMSE_burn,
+                         fill = summarise_runs)) +
+    geom_bar(position = 'dodge', stat = 'identity') +
     theme_minimal() +
     theme(panel.grid.major.x = element_blank(),
-          panel.grid.minor.x = element_blank())
+          panel.grid.minor.x = element_blank(),
+          axis.text.x = element_text(angle = 90)) +
+    labs(y = 'RMSE burn percentage', fill = 'runs summarised y/n') +
+    facet_grid(~ datapoints)
   
   p2 <- errors %>%
-    filter(n %in% n_plot) %>%
-    ggplot(mapping = aes(x = factor(n), y = NRMSE_burn,
-                         colour = ticks_included)) +
-    geom_point(position = position_dodge(width = 0.5),
-               size = 3) +
-    geom_linerange(aes(x = n, ymin = 0, ymax = NRMSE_burn,
-                       colour = ticks_included),
-                   position = position_dodge(width = 0.5)) +
-    labs(colour = 'Ticks included',
-         y = 'NRMSE') +
+    ggplot(mapping = aes(x = noise, y = pcc_burn,
+                         fill = summarise_runs)) +
+    geom_bar(position = 'dodge', stat = 'identity') +
     theme_minimal() +
     theme(panel.grid.major.x = element_blank(),
-          panel.grid.minor.x = element_blank())
+          panel.grid.minor.x = element_blank(),
+          axis.text.x = element_text(angle = 90)) +
+    labs(y = 'Pearsons correlation coefficient burn percentage',
+         fill = 'runs summarised') +
+    lims(y = c(0, NA)) +
+    facet_grid(~ datapoints)
   
-  patch <- p1 + p2 +
+  p3 <- errors %>%
+    ggplot(mapping = aes(x = noise, y = dtw_burn,
+                         fill = summarise_runs)) +
+    geom_bar(position = 'dodge', stat = 'identity') +
+    theme_minimal() +
+    theme(panel.grid.major.x = element_blank(),
+          panel.grid.minor.x = element_blank(),
+          axis.text.x = element_text(angle = 90)) +
+    labs(y = 'Dynamic Time Warping Score burn percentage',
+         fill = 'runs summarised') +
+    lims(y = c(0, NA)) +
+    facet_grid(~ datapoints)
+  
+  plot <- p1 + p2 + p3 +
     plot_layout(guides = 'collect') +
-    plot_annotation(tag_levels = 'A') & 
+    plot_annotation(tag_levels = 'A') &
     theme(plot.tag = element_text(size = 8)) &
     xlab(NULL)
-  
-  plot <- wrap_elements(panel = patch) +
-    labs(tag = 'training sample size') +
-    theme(plot.tag = element_text(size = rel(1)),
-          plot.tag.position = 'bottom')
   
   return(plot)
 }

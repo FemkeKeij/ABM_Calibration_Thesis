@@ -303,7 +303,7 @@ for y in directions:
     netlogo.command(''.join(['set density ', density]))
     # set a random seed
     netlogo.command('clean')
-    # repeat the execution of the model 10 times to account
+    # repeat the execution of the model 5 times to account
     # for stochasticity
     for x in range(1,6):
       # set up

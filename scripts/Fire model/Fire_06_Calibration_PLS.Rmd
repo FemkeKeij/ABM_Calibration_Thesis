@@ -54,7 +54,9 @@ FirePLSFitting <- function(data_clean,
                        density_pred = numeric(),
                        directions_pred = numeric(),
                        noise = character(),
-                       fold = numeric())
+                       fold = numeric(),
+                       burn_end = numeric(),
+                       burn_middle = numeric())
   
   # create dummy variables to use for directions
   data_clean <- data_clean %>%
@@ -116,7 +118,8 @@ FirePLSFitting <- function(data_clean,
                           directions_pred = 
                             predict_pls_clean$directions_pred,
                           fold = i,
-                          noise = 'clean')
+                          noise = 'clean',
+                          burn_end = dat_test_clean$end)
     results_new_noise <- tibble(density = dat_test_clean$density,
                                 directions = dat_test_clean$directions,
                                 density_pred =
@@ -124,7 +127,21 @@ FirePLSFitting <- function(data_clean,
                                 directions_pred = 
                                   predict_pls_noise$directions_pred,
                                 fold = i,
-                                noise = 'noise')
+                                noise = 'noise',
+                                burn_end = dat_test_clean$end)
+    
+    if('middle' %in% colnames(dat_test_clean)){
+      results_new_clean <- results_new_clean %>%
+        mutate(burn_middle = dat_test_clean$middle)
+      results_new_noise <- results_new_noise %>%
+        mutate(burn_middle = dat_test_clean$middle)
+    } else {
+      results_new_clean <- results_new_clean %>%
+        mutate(burn_middle = NA)
+      results_new_noise <- results_new_noise %>%
+        mutate(burn_middle = NA)
+    }
+    
     results_df <- results_df %>%
       add_row(results_new_clean) %>%
       add_row(results_new_noise)
@@ -145,7 +162,182 @@ data_time_full_outputnoise <-
 fit_data_time_full <-
   FirePLSFitting(data_time_full_clean,
                  data_noise = data_time_full_outputnoise)
+```
 
+Timesteps, summarised
+```{r}
+data_time_sum_clean <-
+  read_csv('data/training/fire_time_sum_clean.csv')
+data_time_sum_outputnoise <-
+  read_csv('data/training/fire_time_sum_outputnoise.csv')
+
+fit_data_time_sum <-
+  FirePLSFitting(data_time_sum_clean,
+                 data_noise = data_time_sum_outputnoise)
+```
+
+Endpoints, not summarised
+```{r}
+data_end_full_clean <-
+  read_csv('data/training/fire_end_full_clean.csv')
+data_end_full_outputnoise <-
+  read_csv('data/training/fire_end_full_outputnoise.csv')
+
+fit_data_end_full <-
+  FirePLSFitting(data_end_full_clean,
+                 data_noise = data_end_full_outputnoise)
+```
+
+Endpoints, summarised
+```{r}
+data_end_sum_clean <- read_csv('data/training/fire_end_sum_clean.csv')
+data_end_sum_outputnoise <-
+  read_csv('data/training/fire_end_sum_outputnoise.csv')
+
+fit_data_end_sum <-
+  FirePLSFitting(data_end_sum_clean,
+                 data_noise = data_end_sum_outputnoise)
+```
+
+Save everything in 1 dataframe:
+```{r}
+fit_all <- rbind(fit_data_time_full, fit_data_time_sum,
+                 fit_data_end_full, fit_data_end_sum)
+
+fit_all %>%
+  mutate(id = row_number()) %>%
+  pivot_longer(cols = c(burn_end, burn_middle),
+               names_to = 'time_label',
+               values_to = 'burn_percentage') %>%
+  separate(col = time_label,
+           into = c(NA, 'time_label'),
+           sep = '_') %>%
+  write_csv('data/raw/fire_pls_predictions.csv')
+```
+
+## Compute errors
+Run the fire ABM with the predicted parameter combinations to obtain the predicted output values.
+
+Import Python modules:
+```{python}
+import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
+import math
+import itertools
+import statistics
+sns.set_style('white')
+sns.set_context('talk')
+
+import pyNetLogo # to run NetLogo from RStudio
+```
+
+Link to and start the Fire model:
+```{python}
+netlogo = pyNetLogo.NetLogoLink(gui = True) # start netlogo
+
+netlogo.load_model(r"C:\Users\Femke Keij\OneDrive\Thesis\R projects\LU thesis GitHub\models\Fire_myversion.nlogo")
+# open model
+```
+
+```{python}
+df_vals = pd.read_csv('data/raw/fire_pls_predictions.csv')
+
+# select the relevant columns
+df_vals = df_vals[['density_pred', 'directions_pred','id']]
+# remove the duplicates created by the double time points
+df_vals = df_vals.drop_duplicates()
+df_vals = df_vals.reset_index()
+
+# create a dataframe for predicted burn percentages
+df_out = pd.DataFrame(columns = ['density_pred', 'directions_pred', 'burn_percentage_pred', 'tick', 'id'])
+# add empty row to start
+df_out = df_out.append({'density_pred': -100, 'directions_pred': -100, 'burn_percentage_pred': -100, 'tick': -100, 'id': -100}, ignore_index = True)
+
+# set random seed
+netlogo.command('clean')
+
+for i in range(0, len(df_vals)):
+  # set parameters
+  density = str(df_vals['density_pred'][i])
+  density_round = str(round(df_vals['density_pred'][i]))
+  directions = str(df_vals['directions_pred'][i])
+  netlogo.command(''.join(['set density ', density_round]))
+  netlogo.command(''.join(['set directions ', directions]))
+  
+  # run
+  netlogo.command('setup')
+  initial = netlogo.report('initial-trees')
+  # execute 1 tick at a time, until everything is burned up
+  turtles = netlogo.report('count turtles')
+  while turtles != 0:
+    netlogo.command('go')
+    # record burn percentage
+    burned = netlogo.report('burned-trees')
+    perc_burn = burned / initial * 100
+    ticks = netlogo.report('ticks')
+    # store in data frame
+    df_out = df_out.append({'density_pred': int(density), 'directions_pred': int(directions), 'burn_percentage_pred': perc_burn, 'tick': ticks, 'id': df_vals.loc[i]['id']}, ignore_index = True)
+    # check turtles
+    turtles = netlogo.report('count turtles')
+
+# save resulting dataframe
+df_out.to_csv('data/raw/fire_pls_predictions_withoutputs.csv')
+```
+
+```{python}
+# stop running the ABM and exit the Python workspace
+netlogo.kill_workspace()
+quit
+```
+
+Read in the error data and split into appropriate dataframes
+```{r}
+errors2_data <- 
+  read_csv('data/raw/fire_pls_predictions_withoutputs.csv')
+errors1_data <- read_csv('data/raw/fire_pls_predictions.csv')
+
+# obtain middle and end datapoints for each run
+errors2_data <- errors2_data %>%
+  # remove first row and column (don't contain data)
+  slice(-1) %>%
+  select(-1) %>%
+  group_by(id) %>%
+  mutate(time_label = ifelse(tick == max(tick), 'end',
+                             ifelse(tick == floor(median(tick)),
+                                    'middle', '--'))) %>%
+  filter(time_label %in% c('middle', 'end'))
+
+# merge the dataframes so that all information is together in 1 again
+errors_data <- left_join(errors1_data, errors2_data,
+                         by = c('id', 'density_pred',
+                                'directions_pred', 'time_label'))
+
+fit_data_time_full <- errors_data %>%
+  filter(time_label %in% c('middle', 'end'),
+         datapoints == 'timepoints',
+         summarise_runs == 'full')
+
+fit_data_time_sum <- errors_data %>%
+  filter(time_label %in% c('middle', 'end'),
+         datapoints == 'timepoints',
+         summarise_runs == 'summarised')
+
+fit_data_end_full <- errors_data %>%
+  filter(time_label == 'end',
+         datapoints == 'endpoints',
+         summarise_runs == 'full')
+
+fit_data_end_sum <- errors_data %>%
+  filter(time_label == 'end',
+         datapoints == 'endpoints',
+         summarise_runs == 'summarised')
+```
+
+Perform error computations for each data set:
+
+Timesteps, not summarised
+```{r}
 # compute errors
 errors_data_time_full <- 
   FireComputeErrors(fit_data_time_full,
@@ -160,15 +352,6 @@ errors <- errors_data_time_full
 
 Timesteps, summarised
 ```{r}
-data_time_sum_clean <-
-  read_csv('data/training/fire_time_sum_clean.csv')
-data_time_sum_outputnoise <-
-  read_csv('data/training/fire_time_sum_outputnoise.csv')
-
-fit_data_time_sum <-
-  FirePLSFitting(data_time_sum_clean,
-                 data_noise = data_time_sum_outputnoise)
-
 errors_data_time_sum <- 
   FireComputeErrors(fit_data_time_sum,
                     sample_size = 198,
@@ -182,15 +365,6 @@ errors <- errors %>%
 
 Endpoints, not summarised
 ```{r}
-data_end_full_clean <-
-  read_csv('data/training/fire_end_full_clean.csv')
-data_end_full_outputnoise <-
-  read_csv('data/training/fire_end_full_outputnoise.csv')
-
-fit_data_end_full <-
-  FirePLSFitting(data_end_full_clean,
-                 data_noise = data_end_full_outputnoise)
-
 errors_data_end_full <- 
   FireComputeErrors(fit_data_end_full,
                     sample_size = 198,
@@ -204,14 +378,6 @@ errors <- errors %>%
 
 Endpoints, summarised
 ```{r}
-data_end_sum_clean <- read_csv('data/training/fire_end_sum_clean.csv')
-data_end_sum_outputnoise <-
-  read_csv('data/training/fire_end_sum_outputnoise.csv')
-
-fit_data_end_sum <-
-  FirePLSFitting(data_end_sum_clean,
-                 data_noise = data_end_sum_outputnoise)
-
 errors_data_end_sum <- 
   FireComputeErrors(fit_data_end_sum,
                     sample_size = 198,
@@ -247,6 +413,12 @@ ggsave('figures/fire_pls_density.pdf')
 plot3 <- PlotErrorsDirections(errors)
 
 ggsave('figures/fire_pls_directions.pdf')
+```
+
+```{r}
+plot4 <- PlotErrorsBurnpercentage(errors)
+
+ggsvae('figures/fire_lr_burnpercentage_errors.pdf')
 ```
 
 ################### -------- OLD CODE ------------- #################
