@@ -252,9 +252,15 @@ netlogo.command('clean')
 for i in range(0, len(df_vals)):
   # set parameters
   density = str(df_vals['density_pred'][i])
-  density_round = str(round(df_vals['density_pred'][i]))
+  density_round = round(df_vals['density_pred'][i])
+  if not 0 <= density_round <= 99:
+    if density_round < 0:
+      density_round = 0
+    else:
+      density_round = 99
+  
   directions = str(df_vals['directions_pred'][i])
-  netlogo.command(''.join(['set density ', density_round]))
+  netlogo.command(''.join(['set density ', str(density_round)]))
   netlogo.command(''.join(['set directions ', directions]))
   
   # run
@@ -640,9 +646,15 @@ netlogo.command('clean')
 for i in range(0, len(df_vals)):
   # set parameters
   density = str(df_vals['density_pred'][i])
-  density_round = str(round(df_vals['density_pred'][i]))
+  density_round = round(df_vals['density_pred'][i])
+  if not 0 <= density_round <= 99:
+    if density_round < 0:
+      density_round = 0
+    else:
+      density_round = 99
+  
   directions = str(df_vals['directions_pred'][i])
-  netlogo.command(''.join(['set density ', density_round]))
+  netlogo.command(''.join(['set density ', str(density_round)]))
   netlogo.command(''.join(['set directions ', directions]))
   
   # run
