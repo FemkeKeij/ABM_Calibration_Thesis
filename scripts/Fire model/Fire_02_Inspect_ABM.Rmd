@@ -64,7 +64,6 @@ p1 <- fire_summary %>%
   geom_line(alpha = 0.2) +
   labs(y = 'percentage trees burned') +
   theme_minimal() +
-  theme(panel.grid.minor = element_blank()) +
   facet_grid(~ directions,
              labeller = 'label_both')
 ```
@@ -78,9 +77,11 @@ p2 <- fire_summary %>%
                         group = as.factor(directions),
                         colour = as.factor(directions)))) +
   labs(x = 'tree density (%)',
-       y = '% of burned trees at last tick',
+       y = 'percentage trees burned at last tick',
        colour = 'number of directions') +
   geom_path (linewidth = 1) +
+  directlabels::geom_dl(aes(label = directions),
+                        method = "smart.grid") +
   theme_minimal()
 ```
 
@@ -91,19 +92,28 @@ p3 <- fire_output %>%
   filter(ticks == max(ticks)) %>%
   ggplot(mapping = aes(x = density, y = ticks, 
                        colour = as.factor(directions))) +
-  geom_point(alpha = 0.5) +
+  geom_path(linewidth = 1) +
   labs(x = 'tree density (%)',
        y = 'number of ticks until fire extinguishes',
        colour = 'number of directions') +
+  directlabels::geom_dl(aes(label = directions),
+                        method = "smart.grid") +
   theme_minimal()
 ```
 
 Plot both:
 ```{r}
 p1 / (p2 + p3) +
-  plot_layout(guides = 'collect')
+  plot_layout(guides = 'collect') +
+  theme(panel.grid.minor = element_blank()) +
+  plot_annotation(tag_levels = 'A') &
+  theme(plot.tag = element_text(size = 8),
+        legend.position = 'none',
+        panel.border = element_rect(colour = 'lightgrey',
+                                    fill = NA))
 
-ggsave('figures/fire_parameterspace.pdf')
+ggsave('figures/fire_parameterspace.pdf',
+       height = 15, width = 20, units = 'cm')
 ```
 
 # Identifying equifinality
@@ -155,31 +165,37 @@ clustered_parameters <- fire_summary %>%
 
 p1 <- clustered_parameters %>%
   ggplot(mapping = aes(x = as.factor(cluster),
-                       y = density,
-                       colour = as.factor(cluster),
-                       fill = as.factor(cluster))) +
+                       y = density)) +
            geom_jitter(width = 0.2) +
            geom_boxplot(alpha = 0.1, width = 0.4,
                         outlier.colour = 'transparent') +
            theme_minimal() +
            labs(x = '2-means clusters',
-                y = 'tree density (%)') +
-           theme(legend.position = 'none')
+                y = 'tree density (%)')
 
 p2 <- clustered_parameters %>%
-  ggplot(mapping = aes(x = as.factor(cluster),
-                       y = directions,
-                       colour = as.factor(cluster),
-                       fill = as.factor(cluster))) +
-           geom_jitter(width = 0.2) +
-           geom_boxplot(alpha = 0.1, width = 0.4,
-                        outlier.colour = 'transparent') +
-           theme_minimal() +
-           labs(x = '2-means clusters',
-                y = ' number of directions') +
-           theme(legend.position = 'none')
+  group_by(directions, cluster) %>%
+  summarise(amount = n()) %>%
+  ggplot(mapping = aes(fill = as.factor(directions),
+                       y = amount,
+                       x = as.factor(cluster))) +
+  geom_bar(position = 'fill', 
+           stat = 'identity') +
+  theme_minimal() +
+  labs(x = '2-means clusters',
+       y = '% of parameter combinations in cluster',
+       fill = 'number of \n directions')
 
-p1 + p2
+p1 + p2 +
+  plot_layout(guides = 'collect') +
+  theme(panel.grid.minor = element_blank()) +
+  plot_annotation(tag_levels = 'A') &
+  theme(plot.tag = element_text(size = 8),
+        panel.border = element_rect(colour = 'lightgrey',
+                                    fill = NA))
+
+ggsave('figures/fire_kmeans.pdf',
+       height = 15, width = 20, units = 'cm')
 ```
 The clusters show that we can distinguish fairly well between high and low tree densities based on the burn percentage during the simulation. However, it is difficult to distinguish between the directions. Therefore, we can conclude that there is equifinality for the number of directions.
 
@@ -262,17 +278,31 @@ p1 <- fire_summary %>%
   theme_minimal() +
   labs(x = 'tree density', y = 'percentage of burned trees') +
   facet_grid(directions ~ time_label,
-             labeller = 'label_both')
+             labeller = as_labeller(c(`4` = '4 directions',
+                                      `8` = '8 directions',
+                                      `middle` = 'middle',
+                                      `end` = 'end')))
 
 p2 <- fire_summary %>%
   filter(time_label %in% c('middle', 'end')) %>%
   ggplot(mapping = aes(x = as.factor(directions), y = burn_percentage)) +
-  geom_boxplot() +
+  geom_jitter(width = 0.2) +
+  geom_boxplot(alpha = 0.1,
+               outlier.colour = 'transparent') +
   theme_minimal() +
   labs(x = 'number of directions', y = 'percentage of burned trees') +
   facet_grid(~ time_label)
 
-p1 / p2
+p1 / p2 +
+  plot_layout(guides = 'collect') +
+  theme(panel.grid.minor = element_blank()) +
+  plot_annotation(tag_levels = 'A') &
+  theme(plot.tag = element_text(size = 8),
+        panel.border = element_rect(colour = 'lightgrey',
+                                    fill = NA))
+
+ggsave('figures/fire_unidentifiable.pdf',
+       height = 15, width = 20, units = 'cm')
 ```
 2 issues to look at:
 1) flat slopes / no influence on output
@@ -316,8 +346,8 @@ Plot (partial) autocorrelations:
 acf_plot <- autocorrelation_df %>%
   mutate_at(vars(acf, pacf), ~ replace(., is.nan(.), 0)) %>%
   ggplot(mapping = aes(x = lag, y = acf,
-                       colour = as.factor(combination_number))) +
-  geom_line() +
+                       group = combination_number)) +
+  geom_line(alpha = 0.2) +
   labs(y = 'autocorrelation burn percentage') +
   theme_minimal() +
   theme(legend.position = 'none')
@@ -325,16 +355,22 @@ acf_plot <- autocorrelation_df %>%
 pacf_plot <- autocorrelation_df %>%
   mutate_at(vars(acf, pacf), ~ replace(., is.nan(.), 0)) %>%
   ggplot(mapping = aes(x = lag, y = pacf,
-                       colour = as.factor(combination_number))) +
-  geom_line() +
+                       group = combination_number)) +
+  geom_line(alpha = 0.2) +
   labs(y = 'partial autocorrelation burn percentage') +
   theme_minimal() +
   theme(legend.position = 'none')
 
-autocorrelation_plot <- acf_plot / pacf_plot
+acf_plot / pacf_plot +
+  plot_layout(guides = 'collect') +
+  theme(panel.grid.minor = element_blank()) +
+  plot_annotation(tag_levels = 'A') &
+  theme(plot.tag = element_text(size = 8),
+        panel.border = element_rect(colour = 'lightgrey',
+                                    fill = NA))
 
-ggsave(autocorrelation_plot,
-       filename = 'figures/fire_autocorrelation.pdf')
+ggsave('figures/fire_autocorrelation.pdf',
+       height = 15, width = 20, units = 'cm')
 ```
 
 # Summary statistics
