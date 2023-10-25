@@ -418,7 +418,7 @@ hierarchical_plots <- PlotClusters(hierarchical_clustered_parameters,
                                'grass regrowth time'))
 ```
 
-# Identifying unidentifiable parameters
+# Finding unidentifiable parameters
 Correlation between parameters and outputs:
 ```{r}
 PlotCorrelations <- function(parameter){

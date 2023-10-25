@@ -251,7 +251,7 @@ p1 + p2
 ```
 Here I choose the number of clusters based on trial and error. 
 
-# Identifying unidentifiable parameters
+# Finding unidentifiable parameters
 Correlation between parameters and outputs:
 ```{r}
 p1 <- fire_summary %>%
