@@ -150,18 +150,10 @@ p1 <- numruns %>%
   geom_hline(yintercept = 1, colour = 'darkgreen') +
   geom_hline(yintercept = - 1, colour = 'darkgreen') +
   theme_minimal() +
-  labs(x = 'runs added',
-       y = 'difference burn percentage')
+  labs(x = 'runs',
+       y = 'difference mean burn percentage')
 
-p2 <- mean_conv_burn %>%
-  ggplot(mapping = aes(x = run)) +
-  geom_histogram(binwidth = 1) +
-  theme_minimal() +
-  labs(y = 'count',
-       x = 'number of runs until mean convergence')
-
-# plot both
-mean_conv_plot <- p1 / p2
+mean_conv_plot <- p1 
 ```
 
 2) Coefficient of variation
@@ -178,7 +170,7 @@ numruns <- numruns %>%
   # compute differences in cv
   mutate(cv_diff = cv_burn - lag(cv_burn, default = cv_burn[1]))
   
-# compute at which point the mean difference settles below 1
+# compute at which point the coefficient of variation settles below 0.1
 cv_conv_burn <- numruns %>%
   group_by(combination_number) %>%
   filter(abs(cv_diff) < 0.1,
@@ -186,17 +178,17 @@ cv_conv_burn <- numruns %>%
   slice(which.min(run))
 
 # plot
-p1 <- numruns %>%
+cv_conv_p1 <- numruns %>%
   ggplot(mapping = aes(x = run, y = cv_diff,
                        group = combination_number)) +
   geom_line(colour = 'lightgrey') +
   geom_hline(yintercept = 0.1, colour = 'darkgreen') +
   geom_hline(yintercept = - 0.1, colour = 'darkgreen') +
   theme_minimal() +
-  labs(x = 'added runs',
+  labs(x = 'runs',
        y = 'cv burn percentage')
 
-p2 <- cv_conv_burn %>%
+cv_conv_p2 <- cv_conv_burn %>%
   ggplot(mapping = aes(x = run)) +
   geom_histogram(binwidth = 1) +
   geom_vline(xintercept = mean(cv_conv_burn$run),
@@ -204,17 +196,14 @@ p2 <- cv_conv_burn %>%
   geom_vline(xintercept = median(cv_conv_burn$run),
              colour = 'darkblue', lty = 2) +
   annotate(geom = 'text', label = 'mean',
-           x = mean(cv_conv_burn$run) + 0.2, y = 20,
-           colour = 'darkgreen', angle = 90) +
+           x = mean(cv_conv_burn$run) + 0.2, y = 3.5,
+           colour = 'darkgreen') +
   annotate(geom = 'text', label = 'median',
-           x = median(cv_conv_burn$run) - 0.2, y = 20,
-           colour = 'darkblue', angle = 90) +
+           x = median(cv_conv_burn$run) - 0.2, y = 3.5,
+           colour = 'darkblue') +
   theme_minimal() +
   labs(y = 'count',
        x = 'number of runs until cv convergence')
-
-# plot both
-cv_conv_plot <- p1 / p2
 ```
 
 3) Relative outer variance
@@ -239,15 +228,16 @@ omega_conv <- numruns %>%
   slice(which.min(run))
 
 # plot
-p1 <- numruns %>%
+outer_var_conv_p1 <- numruns %>%
   ggplot(mapping = aes(x = run, y = relative_outer_var,
                        group = combination_number)) +
   geom_line(colour = 'lightgrey') +
   geom_hline(yintercept = 0.2, colour = 'darkgreen') +
-  labs(y = 'relative outer variance burn percentage') +
+  labs(y = 'relative outer variance burn percentage',
+       x = 'runs') +
   theme_minimal()
 
-p2 <- omega_conv %>%
+outer_var_conv_p2 <- omega_conv %>%
   ggplot(mapping = aes(x = run)) +
   geom_histogram(binwidth = 1) +
   geom_vline(xintercept = mean(omega_conv$run),
@@ -255,35 +245,31 @@ p2 <- omega_conv %>%
   geom_vline(xintercept = median(omega_conv$run),
              colour = 'darkblue', lty = 2) +
   annotate(geom = 'text', label = 'mean',
-           x = mean(omega_conv$run) + 1, y = 20,
-           colour = 'darkgreen', angle = 90) +
+           x = mean(omega_conv$run) + 5, y = 2,
+           colour = 'darkgreen') +
   annotate(geom = 'text', label = 'median',
-           x = median(omega_conv$run) - 1, y = 20,
-           colour = 'darkblue', angle = 90) +
+           x = median(omega_conv$run) - 5, y = 2,
+           colour = 'darkblue') +
   theme_minimal() +
   labs(y = 'count',
        x = 'number of runs until relative outer variance convergence')
-
-# plot both
-outer_var_conv_plot <- p1 / p2
 ```
 
 Inspect all results:
 ```{r}
-# mean convergence
-mean_conv_plot
-ggsave('figures/fire_mean_convergence.pdf')
+plot <- (mean_conv_plot + cv_conv_p1)  / (outer_var_conv_p1 + 
+                                          (outer_var_conv_p2 /
+                                             cv_conv_p2)) +
+    plot_layout(guides = 'collect') +
+    plot_annotation(tag_levels = 'A') &
+    theme_minimal() +
+    theme(plot.tag = element_text(size = 8),
+          panel.grid.minor = element_blank())
 
-# coefficient of variation
-cv_conv_plot
-ggsave('figures/fire_coefficientofvariation.pdf')
-
-# windowed variance
-outer_var_conv_plot
-ggsave('figures/fire_windowed_variance.pdf')
+# save plot
+ggsave('figures/fire_convergence.pdf',
+       height = 15, width = 20, units = 'cm')
 ```
-
-The mean convergence and coefficient of variation suggest 2 - 3 runs only. However, the relative outer variance suggests 20 runs, with some parameters even requiring as many as 40.
 
 # Sampling parameter space
 Because this model is not very large, I can simply sample the entire parameter space.
@@ -379,35 +365,15 @@ for(i in 2:nrow(fire_output)){
 }
 ############# end of code that can be removed #####################
 
-# select 10 parameter combinations to look at
-inspect <- c(5, 6, 50, 51, 100, 101, 150, 151, 190, 191)
-
-# plot histograms of burn percentages at middle and end of the simulation
+# retrieve values at middle and end of the simulation
 fire_output <- fire_output %>%
   group_by(combination_number, run) %>%
   mutate(time_label = ifelse(ticks == max(ticks), 'end',
                              ifelse(ticks == floor(median(ticks)),
                                     'middle', '--')))
 
-for(i in inspect){
-  p <- fire_output %>%
-    filter(combination_number == i,
-           time_label %in% c('middle', 'end')) %>%
-    # make histograms with burn_percentage values
-    ggplot(mapping = aes(x = burn_percentage)) +
-    geom_histogram(binwidth = 1) +
-    facet_grid(~ time_label) +
-    theme_minimal() +
-    theme(panel.border = element_rect(fill = NA,
-                                      colour ='lightgrey')) +
-    labs(caption = paste0('combination number ', as.character(i)),
-         x = 'percentage of trees burned')
-  
-  print(p)
-}
-
 # plot a histogram of all the standard deviations
-fire_output %>%
+sd_plot <- fire_output %>%
   filter(time_label %in% c('middle', 'end')) %>%
   group_by(combination_number, time_label) %>%
   mutate(sd = sd(burn_percentage)) %>%
@@ -418,8 +384,53 @@ fire_output %>%
   facet_grid(~ time_label) +
   theme_minimal() +
   theme(panel.border = element_rect(fill = NA,
-                                    colour = 'lightgrey')) +
+                                    colour = 'lightgrey'),
+        panel.grid.minor = element_blank()) +
   labs(x = 'sd of burn percentage per parameter combination')
+
+# inspect the parameter combinations that yield large standard deviations
+inspect_numbers <- fire_output %>%
+  filter(time_label %in% c('middle', 'end')) %>%
+  group_by(combination_number, time_label) %>%
+  mutate(sd = sd(burn_percentage)) %>%
+  filter(sd > 10) %>%
+  select(combination_number, time_label) %>%
+  distinct()
+
+# create labels for combination numbers
+new_labs <- as_labeller(c(`117` = '59 %, 4 d', `119` = '60 %, 4 d',
+                         `80` = '40 %, 8 d', `82` = '41 %, 8 d',
+                         `middle` = 'middle', `end` = 'end'))
+
+fire_output_plot <- fire_output %>%
+  group_by(combination_number, time_label) %>%
+  mutate(mean_val = mean(burn_percentage))
+
+individual_plots <- fire_output_plot %>%
+  filter(time_label %in% inspect_numbers$time_label,
+         combination_number %in% 
+           inspect_numbers$combination_number) %>%
+  ggplot(mapping = aes(x = burn_percentage)) +
+  geom_histogram(binwidth = 1) +
+  geom_vline(aes(xintercept = mean_val,
+                 group = combination_number),
+             colour = 'red') +
+  facet_grid(combination_number ~ time_label,
+             labeller = new_labs) +
+  theme_minimal() +
+    theme(panel.border = element_rect(fill = NA,
+                                      colour ='lightgrey'),
+          panel.grid.minor = element_blank()) +
+  labs(x = '% burned trees') +
+  scale_y_continuous(breaks = c(0, 1))
+
+sd_plot / individual_plots + 
+  plot_layout(guides = 'collect') +
+  plot_annotation(tag_levels = 'A') &
+  theme(plot.tag = element_text(size = 8))
+  
+ggsave('figures/fire_summarising.pdf',
+       height = 15, width = 20, units = 'cm')
 ```
 The data aren't spread very widely so summarising by mean makes sense. We can see this by the small sd's in the second plot and the individual plots for the parameter combinations.
 
