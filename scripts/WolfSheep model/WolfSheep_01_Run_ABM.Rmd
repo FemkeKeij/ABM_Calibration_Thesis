@@ -144,7 +144,7 @@ numruns <- numruns %>%
   mutate(combination_number = cur_group_id())
 
 # pivot to wide format
-numruns <- numruns %>%
+numruns_wide <- numruns %>%
   select(- X) %>%
   pivot_wider(names_from = tick,
               values_from = c(sheep, wolves, grass))
@@ -189,14 +189,12 @@ mean_conv_grass <- numruns %>%
 # plot for sheep
 p1_sheep <- numruns %>%
   ggplot(mapping = aes(x = run, y = mean_diff_sheep,
-                       group = combination_number,
-                       colour = as.factor(tick))) +
-  geom_line() +
+                       group = combination_number)) +
+  geom_line(alpha = 0.5) +
   geom_hline(yintercept = 1, colour = 'darkgreen') +
   geom_hline(yintercept = - 1, colour = 'darkgreen') +
-  theme_minimal() +
-  labs(x = 'runs added',
-       y = 'difference mean number of sheep')
+  labs(y = 'difference mean number',
+       title = 'sheep')
 
 p2_sheep <- mean_conv_sheep %>%
   ggplot(mapping = aes(x = run)) +
@@ -206,25 +204,23 @@ p2_sheep <- mean_conv_sheep %>%
   geom_vline(xintercept = median(mean_conv_sheep$run),
              colour = 'darkblue', lty = 2) +
   annotate(geom = 'text', label = 'mean',
-           x = mean(mean_conv_sheep$run) + 1, y = 20,
+           x = mean(mean_conv_sheep$run) + 1, y = 50,
            colour = 'darkgreen', angle = 90) +
   annotate(geom = 'text', label = 'median',
-           x = median(mean_conv_sheep$run) - 1, y = 20,
+           x = median(mean_conv_sheep$run) + 1, y = 50,
            colour = 'darkblue', angle = 90) +
-  theme_minimal() +
-  labs(y = 'count',
-       x = 'number of runs until mean convergence')
+  labs(y = 'count')
 
 # plot for wolves
 p1_wolves <- numruns %>%
   ggplot(mapping = aes(x = run, y = mean_diff_wolves,
                        group = combination_number)) +
-  geom_line(colour = 'lightgrey') +
+  geom_line(alpha = 0.5) +
   geom_hline(yintercept = 1, colour = 'darkgreen') +
   geom_hline(yintercept = - 1, colour = 'darkgreen') +
-  theme_minimal() +
   labs(x = 'runs added',
-       y = 'difference mean number of wolves')
+       y = 'difference mean number',
+       title = 'wolves')
 
 p2_wolves <- mean_conv_wolves %>%
   ggplot(mapping = aes(x = run)) +
@@ -234,12 +230,11 @@ p2_wolves <- mean_conv_wolves %>%
   geom_vline(xintercept = median(mean_conv_wolves$run),
              colour = 'darkblue', lty = 2) +
   annotate(geom = 'text', label = 'mean',
-           x = mean(mean_conv_wolves$run) + 1, y = 20,
+           x = mean(mean_conv_wolves$run) + 1, y = 40,
            colour = 'darkgreen', angle = 90) +
   annotate(geom = 'text', label = 'median',
-           x = median(mean_conv_wolves$run) - 1, y = 20,
+           x = median(mean_conv_wolves$run) - 1, y = 40,
            colour = 'darkblue', angle = 90) +
-  theme_minimal() +
   labs(y = 'count',
        x = 'number of runs until mean convergence')
 
@@ -247,12 +242,11 @@ p2_wolves <- mean_conv_wolves %>%
 p1_grass <- numruns %>%
   ggplot(mapping = aes(x = run, y = mean_diff_grass,
                        group = combination_number)) +
-  geom_line(colour = 'lightgrey') +
+  geom_line(alpha = 0.5) +
   geom_hline(yintercept = 1, colour = 'darkgreen') +
   geom_hline(yintercept = - 1, colour = 'darkgreen') +
-  theme_minimal() +
-  labs(x = 'runs added',
-       y = 'difference mean number of grass')
+  labs(y = 'difference mean number',
+       title = 'grass')
 
 p2_grass <- mean_conv_grass %>%
   ggplot(mapping = aes(x = run)) +
@@ -262,17 +256,38 @@ p2_grass <- mean_conv_grass %>%
   geom_vline(xintercept = median(mean_conv_grass$run),
              colour = 'darkblue', lty = 2) +
   annotate(geom = 'text', label = 'mean',
-           x = mean(mean_conv_grass$run) + 1, y = 20,
+           x = mean(mean_conv_grass$run) + 1, y = 40,
            colour = 'darkgreen', angle = 90) +
   annotate(geom = 'text', label = 'median',
-           x = median(mean_conv_grass$run) - 1, y = 20,
+           x = median(mean_conv_grass$run) - 1, y = 40,
            colour = 'darkblue', angle = 90) +
-  theme_minimal() +
-  labs(y = 'count',
-       x = 'number of runs until mean convergence')
+  labs(y = 'count')
 
 # plot all together
-mean_conv_plot <- (p1_sheep + p1_wolves + p1_grass) / (p2_sheep + p2_wolves + p2_grass)
+mean_conv_plot <- (p1_sheep + p1_wolves + p1_grass) /
+  (p2_sheep + p2_wolves + p2_grass) +
+  plot_layout(guides = 'collect') +
+  plot_annotation(tag_levels = '1') &
+  theme_minimal() +
+  theme(plot.tag = element_text(size = 8),
+        panel.grid.minor = element_blank(),
+        panel.border = element_rect(fill = NA, colour = 'lightgrey'))
+
+mean_conv_plot[[1]][[1]] <- mean_conv_plot[[1]][[1]] +
+  theme(axis.title.x = element_blank())
+mean_conv_plot[[1]][[2]] <- mean_conv_plot[[1]][[2]] +
+  theme(axis.title.y = element_blank())
+mean_conv_plot[[1]][[3]] <- mean_conv_plot[[1]][[3]] +
+  theme(axis.title.x = element_blank(),
+        axis.title.y = element_blank())
+
+mean_conv_plot[[2]][[1]] <- mean_conv_plot[[2]][[1]] +
+  theme(axis.title.x = element_blank())
+mean_conv_plot[[2]][[2]] <- mean_conv_plot[[2]][[2]] +
+  theme(axis.title.y = element_blank())
+mean_conv_plot[[2]][[3]] <- mean_conv_plot[[2]][[3]] +
+  theme(axis.title.x = element_blank(),
+        axis.title.y = element_blank())
 ```
 
 2) Coefficient of variation
@@ -288,12 +303,19 @@ numruns <- numruns %>%
          cv_sheep = sd_sheep / mean_sheep,
          cv_wolves = sd_wolves / mean_wolves,
          cv_grass = sd_grass / mean_grass) %>%
-  # replace all NAs (resulting from sd = 0) with 0
+  # replace all Inf with NA (resulting from mean = 0)
+  mutate(cv_sheep = ifelse(abs(cv_sheep) == Inf, NA, cv_sheep),
+         cv_wolves = ifelse(abs(cv_wolves) == Inf, NA, cv_wolves),
+         cv_grass = ifelse(abs(cv_grass) == Inf, NA, cv_grass)) %>%
+  # replace all NAs (resulting from sd = 0 or mean = 0) with 0
   replace(is.na(.), 0) %>%
   # compute differences in cvs
-  mutate(cv_diff_sheep = cv_sheep - lag(cv_sheep, default = cv_sheep[1]),
-         cv_diff_wolves = cv_wolves - lag(cv_wolves, default = cv_wolves[1]),
-         cv_diff_grass = cv_grass - lag(cv_grass, default = cv_grass[1]))
+  mutate(cv_diff_sheep = cv_sheep - lag(cv_sheep,
+                                        default = cv_sheep[1]),
+         cv_diff_wolves = cv_wolves - lag(cv_wolves,
+                                          default = cv_wolves[1]),
+         cv_diff_grass = cv_grass - lag(cv_grass,
+                                        default = cv_grass[1]))
   
 # compute at which point the mean difference settles below 1
 cv_conv_sheep <- numruns %>%
@@ -318,12 +340,13 @@ cv_conv_grass <- numruns %>%
 p1_sheep <- numruns %>%
   ggplot(mapping = aes(x = run, y = cv_diff_sheep,
                        group = combination_number)) +
-  geom_line(colour = 'lightgrey') +
+  geom_line(alpha = 0.5) +
   geom_hline(yintercept = 0.1, colour = 'darkgreen') +
   geom_hline(yintercept = - 0.1, colour = 'darkgreen') +
-  theme_minimal() +
   labs(x = 'added runs',
-       y = 'cv number of sheep')
+       y = 'cv',
+       title = 'sheep') +
+  facet_grid(~ tick)
 
 p2_sheep <- cv_conv_sheep %>%
   ggplot(mapping = aes(x = run)) +
@@ -336,9 +359,8 @@ p2_sheep <- cv_conv_sheep %>%
            x = mean(cv_conv_sheep$run) + 1, y = 20,
            colour = 'darkgreen', angle = 90) +
   annotate(geom = 'text', label = 'median',
-           x = median(cv_conv_sheep$run) - 1, y = 20,
+           x = median(cv_conv_sheep$run) - 1.5, y = 20,
            colour = 'darkblue', angle = 90) +
-  theme_minimal() +
   labs(y = 'count',
        x = 'number of runs until cv convergence')
 
@@ -346,12 +368,13 @@ p2_sheep <- cv_conv_sheep %>%
 p1_wolves <- numruns %>%
   ggplot(mapping = aes(x = run, y = cv_diff_wolves,
                        group = combination_number)) +
-  geom_line(colour = 'lightgrey') +
+  geom_line(alpha = 0.5) +
   geom_hline(yintercept = 0.1, colour = 'darkgreen') +
   geom_hline(yintercept = - 0.1, colour = 'darkgreen') +
-  theme_minimal() +
   labs(x = 'added runs',
-       y = 'difference cv of wolves')
+       y = 'difference cv',
+       title = 'wolves') +
+  facet_grid(~ tick)
 
 p2_wolves <- cv_conv_wolves %>%
   ggplot(mapping = aes(x = run)) +
@@ -364,9 +387,8 @@ p2_wolves <- cv_conv_wolves %>%
            x = mean(cv_conv_wolves$run) + 1, y = 20,
            colour = 'darkgreen', angle = 90) +
   annotate(geom = 'text', label = 'median',
-           x = median(cv_conv_wolves$run) - 1, y = 20,
+           x = median(cv_conv_wolves$run) - 1.5, y = 20,
            colour = 'darkblue', angle = 90) +
-  theme_minimal() +
   labs(y = 'count',
        x = 'number of runs until cv convergence')
 
@@ -374,12 +396,13 @@ p2_wolves <- cv_conv_wolves %>%
 p1_grass <- numruns %>%
   ggplot(mapping = aes(x = run, y = cv_diff_grass,
                        group = combination_number)) +
-  geom_line(colour = 'lightgrey') +
+  geom_line(alpha = 0.5) +
   geom_hline(yintercept = 0.1, colour = 'darkgreen') +
   geom_hline(yintercept = - 0.1, colour = 'darkgreen') +
-  theme_minimal() +
   labs(x = 'added runs',
-       y = 'difference cv of grass')
+       y = 'difference cv',
+       title = 'grass') +
+  facet_grid(~ tick)
 
 p2_grass <- cv_conv_grass %>%
   ggplot(mapping = aes(x = run)) +
@@ -394,12 +417,34 @@ p2_grass <- cv_conv_grass %>%
   annotate(geom = 'text', label = 'median',
            x = median(cv_conv_grass$run) - 1, y = 20,
            colour = 'darkblue', angle = 90) +
-  theme_minimal() +
   labs(y = 'count',
        x = 'number of runs until cv convergence')
 
 # plot all together
-cv_conv_plot <- (p1_sheep + p1_wolves + p1_grass) / (p2_sheep + p2_wolves + p2_grass)
+cv_conv_plot <- (p1_sheep + p1_wolves + p1_grass) /
+  (p2_sheep + p2_wolves + p2_grass) +
+  plot_layout(guides = 'collect') +
+  plot_annotation(tag_levels = '1') &
+  theme_minimal() +
+  theme(plot.tag = element_text(size = 8),
+        panel.grid.minor = element_blank(),
+        panel.border = element_rect(fill = NA, colour = 'lightgrey'))
+
+cv_conv_plot[[1]][[1]] <- cv_conv_plot[[1]][[1]] +
+  theme(axis.title.x = element_blank())
+cv_conv_plot[[1]][[2]] <- cv_conv_plot[[1]][[2]] +
+  theme(axis.title.y = element_blank())
+cv_conv_plot[[1]][[3]] <- cv_conv_plot[[1]][[3]] +
+  theme(axis.title.x = element_blank(),
+        axis.title.y = element_blank())
+
+cv_conv_plot[[2]][[1]] <- cv_conv_plot[[2]][[1]] +
+  theme(axis.title.x = element_blank())
+cv_conv_plot[[2]][[2]] <- cv_conv_plot[[2]][[2]] +
+  theme(axis.title.y = element_blank())
+cv_conv_plot[[2]][[3]] <- cv_conv_plot[[2]][[3]] +
+  theme(axis.title.x = element_blank(),
+        axis.title.y = element_blank())
 ```
 
 3) Windowed variance / relative outer variance
@@ -443,10 +488,12 @@ omega_conv_grass <- numruns %>%
 p1_sheep <- numruns %>%
   ggplot(mapping = aes(x = run, y = relative_outer_var_sheep,
                        group = combination_number)) +
-  geom_line(colour = 'lightgrey') +
+  geom_line(alpha = 0.2) +
   geom_hline(yintercept = 0.2, colour = 'darkgreen') +
-  labs(y = 'relative outer variance sheep') +
-  theme_minimal()
+  labs(y = 'relative outer variance sheep',
+       title = 'sheep') +
+  facet_grid(~ tick) +
+  theme(axis.title.x = NULL)
 
 p2_sheep <- omega_conv_sheep %>%
   ggplot(mapping = aes(x = run)) +
@@ -459,20 +506,20 @@ p2_sheep <- omega_conv_sheep %>%
            x = mean(omega_conv_sheep$run) + 1, y = 20,
            colour = 'darkgreen', angle = 90) +
   annotate(geom = 'text', label = 'median',
-           x = median(omega_conv_sheep$run) - 1, y = 20,
+           x = median(omega_conv_sheep$run) - 1.5, y = 20,
            colour = 'darkblue', angle = 90) +
-  theme_minimal() +
-  labs(y = 'count',
-       x = 'number of runs until relative outer variance convergence')
+  labs(y = 'count') +
+  theme(axis.title.x = NULL)
 
 # plot for wolves
 p1_wolves <- numruns %>%
   ggplot(mapping = aes(x = run, y = relative_outer_var_wolves,
                        group = combination_number)) +
-  geom_line(colour = 'lightgrey') +
+  geom_line(alpha = 0.2) +
   geom_hline(yintercept = 0.2, colour = 'darkgreen') +
-  labs(y = 'relative outer variance wolves') +
-  theme_minimal()
+  labs(y = 'relative outer variance wolves',
+       title = 'wolves') +
+  facet_grid(~ tick)
 
 p2_wolves <- omega_conv_wolves %>%
   ggplot(mapping = aes(x = run)) +
@@ -482,12 +529,11 @@ p2_wolves <- omega_conv_wolves %>%
   geom_vline(xintercept = median(omega_conv_wolves$run),
              colour = 'darkblue', lty = 2) +
   annotate(geom = 'text', label = 'mean',
-           x = mean(omega_conv_wolves$run) + 1, y = 20,
+           x = mean(omega_conv_wolves$run) + 1, y = 10,
            colour = 'darkgreen', angle = 90) +
   annotate(geom = 'text', label = 'median',
-           x = median(omega_conv_wolves$run) - 1, y = 20,
+           x = median(omega_conv_wolves$run) + 1, y = 10,
            colour = 'darkblue', angle = 90) +
-  theme_minimal() +
   labs(y = 'count',
        x = 'number of runs until relative outer variance convergence')
 
@@ -495,10 +541,12 @@ p2_wolves <- omega_conv_wolves %>%
 p1_grass <- numruns %>%
   ggplot(mapping = aes(x = run, y = relative_outer_var_grass,
                        group = combination_number)) +
-  geom_line(colour = 'lightgrey') +
+  geom_line(alpha = 0.2) +
   geom_hline(yintercept = 0.2, colour = 'darkgreen') +
-  labs(y = 'relative outer variance grass') +
-  theme_minimal()
+  labs(y = 'relative outer variance grass',
+       title = 'grass') +
+  facet_grid(~ tick) +
+  theme(axis.title.x = NULL)
 
 p2_grass <- omega_conv_grass %>%
   ggplot(mapping = aes(x = run)) +
@@ -508,40 +556,63 @@ p2_grass <- omega_conv_grass %>%
   geom_vline(xintercept = median(omega_conv_grass$run),
              colour = 'darkblue', lty = 2) +
   annotate(geom = 'text', label = 'mean',
-           x = mean(omega_conv_grass$run) + 1, y = 20,
+           x = mean(omega_conv_grass$run) + 1, y = 6,
            colour = 'darkgreen', angle = 90) +
   annotate(geom = 'text', label = 'median',
-           x = median(omega_conv_grass$run) - 1, y = 20,
+           x = median(omega_conv_grass$run) - 1, y = 6,
            colour = 'darkblue', angle = 90) +
-  theme_minimal() +
-  labs(y = 'count',
-       x = 'number of runs until relative outer variance convergence')
+  labs(y = 'count') +
+  theme(axis.title.x = NULL)
 
 # plot all together
-outer_var_conv_plot <- (p1_sheep + p1_wolves + p1_grass) / (p2_sheep + p2_wolves + p2_grass)
+outer_var_conv_plot <- (p1_sheep + p1_wolves + p1_grass) /
+  (p2_sheep + p2_wolves + p2_grass) +
+  plot_layout(guides = 'collect') +
+  plot_annotation(tag_levels = '1') &
+  theme_minimal() +
+  theme(plot.tag = element_text(size = 8),
+        panel.grid.minor = element_blank(),
+        panel.border = element_rect(fill = NA, colour = 'lightgrey'))
+
+outer_var_conv_plot[[1]][[1]] <- outer_var_conv_plot[[1]][[1]] +
+  theme(axis.title.x = element_blank())
+outer_var_conv_plot[[1]][[2]] <- outer_var_conv_plot[[1]][[2]] +
+  theme(axis.title.y = element_blank())
+outer_var_conv_plot[[1]][[3]] <- outer_var_conv_plot[[1]][[3]] +
+  theme(axis.title.x = element_blank(),
+        axis.title.y = element_blank())
+
+outer_var_conv_plot[[2]][[1]] <- outer_var_conv_plot[[2]][[1]] +
+  theme(axis.title.x = element_blank())
+outer_var_conv_plot[[2]][[2]] <- outer_var_conv_plot[[2]][[2]] +
+  theme(axis.title.y = element_blank())
+outer_var_conv_plot[[2]][[3]] <- outer_var_conv_plot[[2]][[3]] +
+  theme(axis.title.x = element_blank(),
+        axis.title.y = element_blank())
 ```
 
-Inspect all results:
+Inspect all:
 ```{r}
 # mean convergence
 mean_conv_plot
-ggsave('figures/wolfsheep_mean_convergence.pdf')
+ggsave('figures/wolfsheep_mean_convergence.pdf',
+       height = 15, width = 20, units = 'cm')
 
 # coefficient of variation
 cv_conv_plot
-ggsave('figures/wolfsheep_coefficientofvariation.pdf')
+ggsave('figures/wolfsheep_coefficientofvariation.pdf',
+       height = 15, width = 20, units = 'cm')
 
 # windowed variance
 outer_var_conv_plot
-ggsave('figures/wolfsheep_windowed_variance.pdf')
+ggsave('figures/wolfsheep_windowed_variance.pdf',
+       height = 15, width = 20, units = 'cm')
 ```
 Mean convergence means and medians all under 15.
 Coefficient of variation means and medians all under 5.
 Outer relative variance means and medians all under 15.
 
 I think I can safely go for 10.
-
-Before making this conclusion final, check that I've done the outer relative variance thing correctly.
 
 # Sampling parameter space
 Sample 1250, 5000, and 10000 samples using first random sampling and then Latin Hypercube Sampling.
@@ -559,6 +630,8 @@ I'm going to use 1250, 5000, and 10000 parameter combinations. That constitutes 
 
 Random samples:
 ```{r}
+set.seed(134)
+
 random_sample_ws <- function(size = 1250){
   rand_sample <- tibble(initial_number_sheep = numeric(size),
                         initial_number_wolves = numeric(size),
@@ -568,13 +641,27 @@ random_sample_ws <- function(size = 1250){
                         sheep_reproduce = numeric(size),
                         wolf_reproduce = numeric(size))
   
-  rand_sample$initial_number_sheep <- sample(0:250, size = size, replace = TRUE)
-  rand_sample$initial_number_wolves <- sample(0:250, size = size, replace = TRUE)
-  rand_sample$grass_regrowth_time <- sample(0:100, size = size, replace = TRUE)
-  rand_sample$sheep_gain_from_food <- sample(0:50, size = size, replace = TRUE)
-  rand_sample$wolf_gain_from_food <- sample(0:100, size = size, replace = TRUE)
-  rand_sample$sheep_reproduce <- sample(1:20, size = size, replace = TRUE)
-  rand_sample$wolf_reproduce <- sample(0:20, size = size, replace = TRUE)
+  rand_sample$initial_number_sheep <- sample(0:250,
+                                             size = size,
+                                             replace = TRUE)
+  rand_sample$initial_number_wolves <- sample(0:250,
+                                              size = size,
+                                              replace = TRUE)
+  rand_sample$grass_regrowth_time <- sample(0:100,
+                                            size = size,
+                                            replace = TRUE)
+  rand_sample$sheep_gain_from_food <- sample(0:50,
+                                             size = size,
+                                             replace = TRUE)
+  rand_sample$wolf_gain_from_food <- sample(0:100,
+                                            size = size,
+                                            replace = TRUE)
+  rand_sample$sheep_reproduce <- sample(1:20,
+                                        size = size,
+                                        replace = TRUE)
+  rand_sample$wolf_reproduce <- sample(0:20,
+                                       size = size,
+                                       replace = TRUE)
   
   rand_sample <- rand_sample %>%
     mutate(technique = 'random',
@@ -584,9 +671,34 @@ random_sample_ws <- function(size = 1250){
   return(rand_sample)
 }
 
+# 1250 random samples
 rand_sample_1250 <- random_sample_ws(size = 1250)
-rand_sample_5000 <- random_sample_ws(size = 5000)
-rand_sample_10000 <- random_sample_ws(size = 10000)
+# check that they are all unique
+rand_sample_1250 %>%
+  distinct() %>%
+  summarise(n())
+
+# add 3750 cases to make up the 5000 sample
+rand_sample_5000 <- random_sample_ws(size = 3750)
+rand_sample_5000 <- rbind(rand_sample_5000,
+                          rand_sample_1250)
+rand_sample_5000 <- rand_sample_5000 %>%
+  mutate(sample_size = 5000)
+# check that they are all unique
+rand_sample_5000 %>%
+  distinct() %>%
+  summarise(n())
+
+# add 5000 cases to make up the 10000 sample
+rand_sample_10000 <- random_sample_ws(size = 5000)
+rand_sample_10000 <- rbind(rand_sample_10000,
+                          rand_sample_5000)
+rand_sample_10000 <- rand_sample_10000 %>%
+  mutate(sample_size = 10000)
+# check that they are all unique
+rand_sample_10000 %>%
+  distinct() %>%
+  summarise(n())
 ```
 
 Latin Hypercube sampling:
@@ -636,23 +748,41 @@ lhs_sample_10000 <- lhs_sample_ws(size = 10000)
 
 Compile into 1 table and save to import in Python
 ```{r}
-parameter_space_samples <- bind_rows(rand_sample_1250, rand_sample_5000, rand_sample_10000,
-                                    lhs_sample_1250, lhs_sample_5000, lhs_sample_10000)
+parameter_space_samples <- bind_rows(rand_sample_1250,
+                                     rand_sample_5000,
+                                     rand_sample_10000,
+                                     lhs_sample_1250,
+                                     lhs_sample_5000,
+                                     lhs_sample_10000)
 
-write_csv(as.data.frame(parameter_space_samples), 'data/processed/wolfsheep_parameter_sample.csv')
+write_csv(as.data.frame(parameter_space_samples),
+          'data/processed/wolfsheep_parameter_sample.csv')
 ```
 
-Run each parameter combination 10 times.
+For now, run this:
+```{r}
+parameter_space_samples %>%
+  filter(sample_size == 1250,
+         technique == 'random') %>%
+  write_csv('data/processed/wolfsheep_parameter_sample_1.csv')
+```
+
+Run each parameter combination 15 times.
 ```{python}
-all_comb = pd.read_csv('data/processed/wolfsheep_parameter_sample.csv')
+all_comb = pd.read_csv('C:\\Users\\Femke Keij\\OneDrive\\Thesis\\R projects\\LU thesis GitHub\\data\\processed\\wolfsheep_parameter_sample_1.csv')
 
 parameter_space_df = pd.DataFrame(columns = ['technique', 'sample_size', 'run', 'tick' ,'initial_number_sheep', 'initial_number_wolves', 'sheep_gain_from_food', 'wolf_gain_from_food', 'sheep_reproduce', 'wolf_reproduce', 'grass_regrowth', 'sheep', 'wolves', 'grass'])
 
-# RUNNING ONLY THE FIRST 100 TO WORK WITH FOR NOW
-all_comb = all_comb.iloc[:100]
+# RUNNING IN GROUPS OF 10
+all_comb = all_comb.iloc[321:341, 0:9]
+all_comb = all_comb.reset_index()
+# next: 281:301
+# next: 301:321
+# next: 321:341
+# next: 341:361
 
 # set random seed
-netlogo.command('clean')
+#netlogo.command('clean')
 
 # for each combination of parameters
 for i in range(0, len(all_comb)):
@@ -678,7 +808,7 @@ for i in range(0, len(all_comb)):
   netlogo.command(''.join(['set grass-regrowth-time ', grass_regrowth]))
   
   # run combination 10 times
-  for j in range(1, 11):
+  for j in range(1, 16):
     # set up
     netlogo.command('setup')
     # execute 1 tick at a time, and report
@@ -697,8 +827,9 @@ for i in range(0, len(all_comb)):
       
   print(''.join(['finished run ', str(i), '\n']), flush = True)
 
+# WHEN RUNNING IN GROUPS, CHANGE SAVE NUMBER
 # save data as csv file
-parameter_space_df.to_csv("C:/Users/Femke Keij/OneDrive/Thesis/R projects/LU thesis local/data/raw/wolfsheep_output.csv")
+parameter_space_df.to_csv('C:\\Users\\Femke Keij\\OneDrive\\Thesis\\R projects\\LU thesis GitHub\\data\\raw\\wolfsheep_output18.csv')
 ```
 
 Close the model:
