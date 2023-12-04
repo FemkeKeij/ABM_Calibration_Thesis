@@ -849,104 +849,211 @@ rm(list = ls(all = TRUE))
 ```
 
 Import csv output format for the model as tidy data. We ignore the first column because it contains the indices.
+This is a limited sample data set with around 300 cases that will be used for now.
 ```{r}
-ws_output <- read_csv("data/raw/wolfsheep_output.csv",
+ws_output <- read_csv("data/raw/wolfsheep_output200.csv",
                         col_names = TRUE)[, - 1]
 ```
 
 Look at the distribution of the outputs within 1 parameter combination. If this is approximately normal (or concentrated around a single mean), we can summarise the data into a single value (the mean).
 ```{r}
-# randomly sample 10 parameter combinations to look at
-inspect <- sample(0:39, size = 10, replace = FALSE)
+ws_output <- ws_output %>%
+  group_by(initial_number_sheep, initial_number_wolves,
+           sheep_gain_from_food, wolf_gain_from_food,
+           sheep_reproduce, wolf_reproduce,
+           grass_regrowth) %>%
+  mutate(combination_number = cur_group_id()) %>%
+  filter(combination_number <= 200)
 
-# correct tick numbers
-ws_output$ticks <- rep(1:500, 600)
-
-# for the random combination numbers to look at
-for(i in inspect){
-  p <- ws_output %>%
-    # retrieve number and ticks 50, 100, 150, 250, and 450
-    filter(combination_number == i,
-          ticks %in% c(50, 100, 150, 250, 450)) %>%
-    # pivot longer to shorten plot code
-    pivot_longer(cols = c('sheep', 'wolves', 'grass'),
-                 names_to = 'turtles',
-                 values_to = 'values') %>%
-    # make histograms with turtle / patch values
-    ggplot(mapping = aes(x = values)) +
-    geom_histogram(binwidth = 100) +
-    # split for sheep, wolves, grass, and ticks
-    facet_grid(turtles ~ ticks) +
-    theme_minimal() +
-    theme(panel.border = element_rect(fill = NA, colour = 'lightgrey')) +
-    labs(caption = paste0('combination number ', as.character(i)))
-  
-  print(p)
-}
-
-# plot a histogram of all the standard deviations
-ws_output %>%
-  filter(ticks %in% c(50, 100, 150, 250, 450)) %>%
-  pivot_longer(cols = c('sheep', 'wolves', 'grass'),
-               names_to = 'turtles',
-               values_to = 'values') %>%
-  group_by(combination_number, ticks, turtles) %>%
-  mutate(sd = sd(values)) %>%
-  select(combination_number, sd, ticks, turtles) %>%
-  distinct()
+# plot a histogram of all the standard deviations for the sheep output
+sd_plot_sheep <- ws_output %>%
+  filter(tick %in% c(50, 250, 450)) %>%
+  group_by(combination_number, tick) %>%
+  mutate(sd = sd(sheep)) %>%
+  select(combination_number, sd, tick) %>%
+  distinct() %>%
+  drop_na() %>%
   ggplot(mapping = aes(x = sd)) +
   geom_histogram(binwidth = 100) +
-  facet_grid(turtles ~ ticks) +
+  facet_grid(~ tick) +
   theme_minimal() +
   theme(panel.border = element_rect(fill = NA,
-                                    colour = 'lightgrey')) +
-  labs(x = 'sd of outputs per parameter combination')
+                                    colour = 'lightgrey'),
+        panel.grid.minor = element_blank()) +
+  labs(x = 'sd of number of sheep per parameter combination')
+
+sd_plot_wolves <- ws_output %>%
+  filter(tick %in% c(50, 250, 450)) %>%
+  group_by(combination_number, tick) %>%
+  mutate(sd = sd(wolves)) %>%
+  select(combination_number, sd, tick) %>%
+  distinct() %>%
+  drop_na() %>%
+  ggplot(mapping = aes(x = sd)) +
+  geom_histogram(binwidth = 100) +
+  facet_grid(~ tick) +
+  theme_minimal() +
+  theme(panel.border = element_rect(fill = NA,
+                                    colour = 'lightgrey'),
+        panel.grid.minor = element_blank()) +
+  labs(x = 'sd of number of wolves per parameter combination')
+
+sd_plot_grass <- ws_output %>%
+  filter(tick %in% c(50, 250, 450)) %>%
+  group_by(combination_number, tick) %>%
+  mutate(sd = sd(grass)) %>%
+  select(combination_number, sd, tick) %>%
+  distinct() %>%
+  drop_na() %>%
+  ggplot(mapping = aes(x = sd)) +
+  geom_histogram(binwidth = 100) +
+  facet_grid(~ tick) +
+  theme_minimal() +
+  theme(panel.border = element_rect(fill = NA,
+                                    colour = 'lightgrey'),
+        panel.grid.minor = element_blank()) +
+  labs(x = 'sd of amount of gras per parameter combination')
+
+# inspect the parameter combinations that yield large standard deviations
+large_sd <- ws_output %>%
+  filter(tick %in% c(50, 250, 450)) %>%
+  group_by(combination_number, tick) %>%
+  mutate(sd_sheep = sd(sheep),
+         sd_wolves = sd(wolves),
+         sd_grass = sd(grass),
+         mean_sheep = mean(sheep),
+         mean_wolves = mean(wolves),
+         mean_grass = mean(grass)) %>%
+  select(- c(run, technique, sample_size)) %>%
+  distinct() %>%
+  ungroup()
+
+# show the distributions for the parameter combinations with the 5
+# largest standard deviations
+large_sd_sheep <- large_sd %>%
+  select(- c(sheep, wolves, grass)) %>%
+  distinct() %>%
+  arrange(- sd_sheep) %>%
+  mutate(rank_sd = row_number()) %>%
+  filter(rank_sd <= 5) %>%
+  select(combination_number)
+large_sd_wolves <- large_sd %>%
+  select(- c(sheep, wolves, grass)) %>%
+  distinct() %>%
+  arrange(- sd_wolves) %>%
+  mutate(rank_sd = row_number()) %>%
+  filter(rank_sd <= 5) %>%
+  select(combination_number)
+large_sd_grass <- large_sd %>%
+  select(- c(sheep, wolves, grass)) %>%
+  distinct() %>%
+  arrange(- sd_grass) %>%
+  mutate(rank_sd = row_number()) %>%
+  filter(rank_sd <= 5) %>%
+  select(combination_number)
+
+individual_plot_sheep <- large_sd %>%
+  filter(combination_number %in%
+           unlist(large_sd_sheep)) %>%
+  ggplot(mapping = aes(x = sheep)) +
+  geom_histogram(binwidth = 100) +
+  geom_vline(aes(xintercept = mean_sheep,
+                 group = combination_number),
+             colour = 'red') +
+  facet_grid(combination_number ~ tick,
+             scales = 'free') +
+  labs(x = 'amount of sheep')
+
+individual_plot_wolves <- large_sd %>%
+  filter(combination_number %in%
+           unlist(large_sd_wolves)) %>%
+  ggplot(mapping = aes(x = wolves)) +
+  geom_histogram(binwidth = 100) +
+  geom_vline(aes(xintercept = mean_wolves,
+                 group = combination_number),
+             colour = 'red') +
+  facet_grid(combination_number ~ tick,
+             scales = 'free') +
+  labs(x = 'amount of wolves')
+
+individual_plot_grass <- large_sd %>%
+  filter(combination_number %in%
+           unlist(large_sd_grass)) %>%
+  ggplot(mapping = aes(x = grass)) +
+  geom_histogram(binwidth = 100) +
+  geom_vline(aes(xintercept = mean_grass,
+                 group = combination_number),
+             colour = 'red') +
+  facet_grid(combination_number ~ tick,
+             scales = 'free') +
+  labs(x = 'amount of grass')
+
+# combined plot for sheep
+sd_plot_sheep / individual_plot_sheep +
+  plot_layout(guides = 'collect') +
+  plot_annotation(tag_levels = 'A') &
+  theme_minimal() +
+  theme(plot.tag = element_text(size = 8),
+        panel.grid.minor = element_blank(),
+        panel.border = element_rect(fill = NA, colour = 'lightgrey'))
+
+ggsave('figures/wolfsheep_summarising_sheep.pdf',
+       height = 30, width = 20, units = 'cm')
+
+# combined plot for wolves
+sd_plot_wolves / individual_plot_wolves +
+  plot_layout(guides = 'collect') +
+  plot_annotation(tag_levels = 'A') &
+  theme_minimal() +
+  theme(plot.tag = element_text(size = 8),
+        panel.grid.minor = element_blank(),
+        panel.border = element_rect(fill = NA, colour = 'lightgrey'))
+
+ggsave('figures/wolfsheep_summarising_wolves.pdf',
+       height = 30, width = 20, units = 'cm')
+
+# combined plot for grass
+sd_plot_grass / individual_plot_grass +
+  plot_layout(guides = 'collect') +
+  plot_annotation(tag_levels = 'A') &
+  theme_minimal() +
+  theme(plot.tag = element_text(size = 8),
+        panel.grid.minor = element_blank(),
+        panel.border = element_rect(fill = NA, colour = 'lightgrey'))
+
+ggsave('figures/wolfsheep_summarising_grass.pdf',
+       height = 30, width = 20, units = 'cm')
 ```
-Combination number 17 shows some dispersion. There are definitely a few parameter combinations with very wide distributions. If these are approximately normally distributed the mean is not necessarily a bad summary measure, but it is also not ideal when trying to represent the full range of possible values. If the distributions are bimodal or otherwise non-normal, the mean is definitely not a good way to summarise.
 
 Manipulate data so that there is 1 outcome for each parameter combination:
 The outcomes for each parameter set are summarized by their mean sheep, wolves, and grass at every tick of the simulation.
 ```{r}
-all_comb <- read_csv('data/processed/wolfsheep_parameterspace.csv')
-
 # group the data by parameter combination and ticks
 ws_summary <- ws_output %>%
-  group_by(combination_number, ticks) %>%
-  # take the mean wolf, sheep, and grass numbers over the 15 runs for each density
-  summarise(mean_sheep = mean(sheep),
-            mean_wolves = mean(wolves),
-            mean_grass = mean(grass),
-            .groups = 'keep')
+  group_by(combination_number, tick) %>%
+  mutate(mean_sheep = mean(sheep),
+         mean_wolves = mean(wolves),
+         mean_grass = mean(grass)) %>%
+  mutate(sample_size = 200) %>%
+  select(- c(run, sheep, wolves, grass)) %>%
+  distinct() %>%
+  rename(wolves_reproduce = wolf_reproduce,
+         wolves_gain_from_food = wolf_gain_from_food,
+         ticks = tick,
+         sheep = mean_sheep,
+         wolves = mean_wolves,
+         grass = mean_grass)
 
-# add the initial parameters back in
-ws_summary$initial_number_sheep <- numeric(nrow(ws_summary))
-ws_summary$initial_number_wolves <- numeric(nrow(ws_summary))
-ws_summary$sheep_gain_from_food <- numeric(nrow(ws_summary))
-ws_summary$wolves_gain_from_food <- numeric(nrow(ws_summary))
-ws_summary$sheep_reproduce <- numeric(nrow(ws_summary))
-ws_summary$wolves_reproduce <- numeric(nrow(ws_summary))
-ws_summary$grass_regrowth <- numeric(nrow(ws_summary))
-
-# change the combination numbers from 0 - 39 to 1 - 40
-ws_summary$combination_number <- ws_summary$combination_number + 1
-
-for(i in 1:nrow(ws_summary)){
-  comb_numb <- ws_summary$combination_number[i]
-  ws_summary$initial_number_sheep[i] <- as.numeric(all_comb[comb_numb, 1])
-  ws_summary$initial_number_wolves[i] <- as.numeric(all_comb[comb_numb, 2])
-  ws_summary$sheep_gain_from_food[i] <- as.numeric(all_comb[comb_numb, 3])
-  ws_summary$wolves_gain_from_food[i] <- as.numeric(all_comb[comb_numb, 4])
-  ws_summary$sheep_reproduce[i] <- as.numeric(all_comb[comb_numb, 5])
-  ws_summary$wolves_reproduce[i] <- as.numeric(all_comb[comb_numb, 6])
-  ws_summary$grass_regrowth[i] <- as.numeric(all_comb[comb_numb, 7])
-}
-  
 ws_summary %>%
-  write_csv(file = 'data/processed/wolfsheep_summary.csv')
+  write_csv(file = 'data/processed/wolfsheep_summary200.csv')
 ```
 
 Also save non-summarised version:
 ```{r}
 ws_output %>%
-  write_csv(file = 'data/processed/wolfsheep_full.csv')
+  mutate(sample_size = 200) %>%
+  rename(wolves_reproduce = wolf_reproduce,
+         wolves_gain_from_food = wolf_gain_from_food,
+         ticks = tick) %>%
+  write_csv(file = 'data/processed/wolfsheep_full200.csv')
 ```
