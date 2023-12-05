@@ -26,8 +26,14 @@ library(patchwork)
 library(directlabels)
 library(RColorBrewer)
 
+# ridgeline plots
+library(ggridges)
+
 # for k-means clustering
 library(factoextra)
+
+# for hierarchical dynamic time warping clustering
+library(dtwclust)
 
 # for computing trends in data
 library(trend)
@@ -42,14 +48,51 @@ Read in the data:
 ```{r}
 # complete data set
 ws_output <- read_csv(
-  'data/processed/wolfsheep_full.csv')
+  'data/processed/wolfsheep_full200.csv')
 
 # output data summary
 ws_summary <- read_csv(
-  'data/processed/wolfsheep_summary.csv')
+  'data/processed/wolfsheep_summary200.csv')
 ```
 
 # Visualising parameter space
+Time series. Because showing all at the same time is a mess, I'm showing a couple different scenarios instead.
+```{r}
+PlotTimeSeriesWS <- function(select){
+  plot <- ws_summary %>%
+    pivot_longer(cols = c(sheep, wolves, grass),
+                 names_to = 'agent',
+                 values_to = 'value') %>%
+    filter(combination_number == select) %>%
+    ggplot(mapping = aes(x = ticks,
+                         y = value,
+                         colour = agent)) +
+    geom_path() +
+    scale_color_manual(values=c('springgreen4', 'gold1', 'maroon')) +
+    labs(y = 'log(population)')
+  
+  return(plot)
+}
+
+# wolves and sheep go extinct, grass at carrying capacity
+plot1 <- PlotTimeSeriesWS(select = 100)
+# wolves go extinct, sheep & grass cycle
+plot2 <- PlotTimeSeriesWS(select = 1)
+# cyclical behaviours between all 3
+plot3 <- PlotTimeSeriesWS(select = 30)
+
+plot1 / plot2 / plot3 +
+  plot_layout(guides = 'collect') +
+  plot_annotation(tag_levels = 'A') &
+  theme_minimal() +
+  theme(plot.tag = element_text(size = 8),
+        panel.grid.minor = element_blank()) &
+  labs(colour = element_blank())
+
+ggsave('figures/wolfsheep_parameterspace_timeseries.pdf',
+       height = 30, width = 20, units = 'cm')
+```
+
 Plot distributions of outcomes.
 Categorize the input parameters to make visualisation easier:
 ```{r}
@@ -79,50 +122,66 @@ ws_summary_cat <- ws_summary %>%
                          labels = c('0 - 25', '26 - 50', '51 - 75', '76 - 100')))
 ```
 
-Ridgeline plot with the distributional outcomes of sheep, wolves, grass (3 plots), as related to the starting parameters
+Violin plots of the distribution of sheep, wolves, and grass at timesteps 50, 250, and 450, categorized per value of initial parameters.
 ```{r}
-PlotRidgelines <- function(parameter, timestep, label){
-  p_sheep <- ws_summary_cat %>%
-    filter(ticks == timestep) %>%
-    ggplot(mapping = aes(x = mean_sheep,y = get(parameter))) +
-    geom_density_ridges() +
+ViolinPlotWS <- function(parameter, x_lab){
+  plot <- ws_summary_cat %>%
+    pivot_longer(cols = c(sheep, wolves, grass),
+                 names_to = 'agents',
+                 values_to = 'value') %>%
+    filter(ticks %in% c(50, 250, 450)) %>%
+    ggplot(mapping = aes(x = get(parameter), y = value)) +
+    geom_violin() +
+    facet_grid(agents ~ ticks,
+               scales = 'free') +
     theme_minimal() +
-      labs(x = c('distribution of number of sheep at timestep ',
-                 timestep),
-           y = label)
-  
-  p_wolves <- ws_summary_cat %>%
-    filter(ticks == timestep) %>%
-    ggplot(mapping = aes(x = mean_wolves,y = get(parameter))) +
-    geom_density_ridges() +
-    theme_minimal() +
-      labs(x = c('distribution of number of wolves at timestep ',
-                 timestep),
-           y = label)
-  
-  p_grass <- ws_summary_cat %>%
-    filter(ticks == timestep) %>%
-    ggplot(mapping = aes(x = mean_grass,y = get(parameter))) +
-    geom_density_ridges() +
-    theme_minimal() +
-      labs(x = c('distribution of number of grass at timestep ',
-                 timestep),
-           y = label)
-  
-  plot <- p_sheep / p_wolves / p_grass
+    theme(panel.border = element_rect(fill = NA,
+                                           colour = 'lightgrey')) +
+    labs(x = x_lab,
+         y = 'population')
 }
 
-p_100 <- PlotRidgelines(parameter = 'sheep_cat',
-                        timestep = 100,
-                        label = 'initial number of sheep')
-p_250 <- PlotRidgelines(parameter = 'sheep_cat',
-                        timestep = 250,
-                        label = 'initial number of sheep')
-p_500 <- PlotRidgelines(parameter = 'sheep_cat',
-                        timestep = 500,
-                        label = 'initial number of sheep')
+sheep_cat_plot <- ViolinPlotWS(parameter = 'sheep_cat',
+             x_lab = 'initial number of sheep')
+ggsave('figures/wolfsheep_parameterspace_sheepcat.pdf',
+       plot = sheep_cat_plot,
+       height = 15, width = 20, units = 'cm')
 
-p_100 + p_250 + p_500
+wolves_cat_plot <- ViolinPlotWS(parameter = 'wolves_cat',
+                               x_lab = 'initial number of wolves')
+ggsave('figures/wolfsheep_parameterspace_wolvescat.pdf',
+       plot = wolves_cat_plot,
+       height = 15, width = 20, units = 'cm')
+
+sheep_food_cat_plot <- ViolinPlotWS(parameter = 'sheep_food_cat',
+                               x_lab = 'sheep gain from food')
+ggsave('figures/wolfsheep_parameterspace_sheepfoodcat.pdf',
+       plot = sheep_food_cat_plot,
+       height = 15, width = 20, units = 'cm')
+
+wolves_food_cat_plot <- ViolinPlotWS(parameter = 'wolves_food_cat',
+                               x_lab = 'wolves gain from food')
+ggsave('figures/wolfsheep_parameterspace_wolvesfoodcat.pdf',
+       plot = wolves_food_cat_plot,
+       height = 15, width = 20, units = 'cm')
+
+sheep_rep_cat_plot <- ViolinPlotWS(parameter = 'sheep_rep_cat',
+                               x_lab = 'sheep reproduction probability')
+ggsave('figures/wolfsheep_parameterspace_sheeprepcat.pdf',
+       plot = sheep_rep_cat_plot,
+       height = 15, width = 20, units = 'cm')
+
+wolves_rep_cat_plot <- ViolinPlotWS(parameter = 'wolves_rep_cat',
+                               x_lab = 'wolf reproduction probability')
+ggsave('figures/wolfsheep_parameterspace_wolvesrepcat.pdf',
+       plot = wolves_rep_cat_plot,
+       height = 15, width = 20, units = 'cm')
+
+grass_cat_plot <- ViolinPlotWS(parameter = 'grass_cat',
+                               x_lab = 'grass regrowth time')
+ggsave('figures/wolfsheep_parameterspace_grasscat.pdf',
+       plot = grass_cat_plot,
+       height = 15, width = 20, units = 'cm')
 ```
 
 # Identifying equifinality
